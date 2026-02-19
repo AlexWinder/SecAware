@@ -1,8 +1,29 @@
 #!/usr/bin/env python3
 
 import dotenv
+import json
 import os
+import requests
 import sys
+
+def identifyKnownCVEsForPackageVersion(packageName, packageVersion):
+    print(f"Identifying known CVEs for package: {packageName} {packageVersion}")
+    
+    payload = {
+        'version': packageVersion,
+        'package': {
+            'name': packageName,
+            'ecosystem': 'Packagist'
+        }
+    }
+
+    response = requests.post(
+        'https://api.osv.dev/v1/query',
+        json=payload,
+    )
+    data = response.json()
+
+    print(json.dumps(data, indent=2))
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
@@ -24,3 +45,5 @@ if __name__ == '__main__':
     loadEnvironmentVariables()
 
     print("SecAware - Currently Work in Progress")
+
+    identifyKnownCVEsForPackageVersion("librenms/librenms", "25.12.0")
