@@ -2,7 +2,7 @@
 name = "SecAware"
 version = "0.0.1"
 authors = [
-    {name = "Alex Winder", email = "contact@alexwinder.com"}
+    { name = "Alex Winder", email = "contact@alexwinder.com" }
 ]
 dependencies = [
     "python-dotenv~=1.2.0"
