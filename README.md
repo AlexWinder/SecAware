@@ -21,5 +21,5 @@ docker run -it --rm \
     -v "$(pwd):/app" \
     -w /app \
     secaware \
-    sh -c "uv pip install --system -e . && bash"
+    sh -c "uv pip install --system -e . && ./SecAware.py"
 ```
