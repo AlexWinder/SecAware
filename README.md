@@ -7,9 +7,11 @@ SecAware is a context-aware vulnerability scanner that aggregates the findings o
 You can get started quickly with Docker:
 
 ```bash
+docker build -t secaware .
+
 docker run -it --rm \
     -v "$(pwd):/app" \
     -w /app \
-    python:3.14-bookworm \
-    bash
+    secaware \
+    sh -c "uv pip install --system -e . && bash"
 ```
