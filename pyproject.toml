@@ -1,0 +1,13 @@
+[project]
+name = "SecAware"
+version = "0.0.1"
+authors = [
+    {name = "Alex Winder", email = "contact@alexwinder.com"}
+]
+dependencies = [
+    "python-dotenv~=1.2.0"
+]
+
+[build-system]
+requires = ["hatchling~=1.28.0"]
+build-backend = "hatchling.build"
