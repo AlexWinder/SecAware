@@ -5,7 +5,8 @@ authors = [
     { name = "Alex Winder", email = "contact@alexwinder.com" }
 ]
 dependencies = [
-    "python-dotenv~=1.2.0"
+    "python-dotenv~=1.2.0",
+    "requests~=2.32.0"
 ]
 
 [build-system]
