@@ -24,10 +24,6 @@ class SoftwareCompositionAnalysis:
         self.buildInventory()
         self.buildAdjacencyList()
 
-        dumpJsonToFile("debug/dependencies.json", self.dependencies)
-        dumpJsonToFile("debug/dependencyGraph.json", self.dependencyGraph)
-        dumpJsonToFile("debug/dependencyNesting.json", self.getNestedDependencies())
-
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
     
@@ -113,6 +109,48 @@ class SoftwareCompositionAnalysis:
             node['dependencies'][childUrl].append(childNode)
 
         return node
+    
+    def getKnownCVEsForAllPackages(self):
+        # Capture the keys in a list to maintain the original order
+        dependencies = list(self.dependencies.keys())
+        
+        payload = {'queries': []}
+
+        for dep in dependencies:
+            data = self.dependencies[dep]
+            payload['queries'].append({
+                'version': data['version'],
+                'package': {
+                    'name': data['name'],
+                    'ecosystem': 'Packagist',
+                }
+            }) 
+
+        payload['queries'].append({
+            'version': 'v11.9.0',
+            'package': {
+                'name': 'laravel/framework',
+                'ecosystem': 'Packagist',
+            }
+        })
+        
+        response = requests.post(
+            'https://api.osv.dev/v1/querybatch',
+            json=payload,
+        )
+        data = response.json()
+
+        if 'results' in data:
+            for dep, result in zip(dependencies, data['results']):
+                vulns = result.get('vulns', [])
+
+                for vuln in vulns:
+                    self.dependencies[dep]['vulnerabilities'].append({
+                        'id': vuln.get('id')
+                    })
+
+        dumpJsonToFile("debug/apiRequest.json", payload)
+        dumpJsonToFile("debug/apiResponse.json", data)
 
     def getKnownCVEsForPackageVersion(self, packageName, packageVersion):
         print(f"Identifying known CVEs for package: {packageName} {packageVersion}")
@@ -143,7 +181,6 @@ class SoftwareCompositionAnalysis:
                 'aliases': vuln.get('aliases', []),
                 'published': vuln.get('published'),
             })
-
     
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
@@ -165,10 +202,14 @@ def dumpJsonToFile(filename, data):
         json.dump(data, f, indent=2)
 
 if __name__ == '__main__':
-
     checkDotEnvFileExists()
     loadEnvironmentVariables()
 
     print("SecAware - Currently Work in Progress")
 
     sca = SoftwareCompositionAnalysis()
+    sca.getKnownCVEsForAllPackages()
+
+    dumpJsonToFile("debug/dependencies.json", sca.dependencies)
+    dumpJsonToFile("debug/dependencyGraph.json", sca.dependencyGraph)
+    dumpJsonToFile("debug/dependencyNesting.json", sca.getNestedDependencies())
