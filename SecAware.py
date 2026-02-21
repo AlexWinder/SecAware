@@ -68,8 +68,8 @@ class SoftwareCompositionAnalysis:
 
     def getNestedDependencies(self):
         results = {
-            "production": [],
-            "development": []
+            "production": {},
+            "development": {}
         }
 
         productionRootDependencies = self.rawManifestData.get('require', {})
@@ -82,7 +82,7 @@ class SoftwareCompositionAnalysis:
                 version = self.versionLookup.get(dependency)
                 if version:
                     packageUrl = self.generatePackageUrl(dependency, version)
-                    results[dependencyType].append(self.getAllNestedDependenciesForPackage(packageUrl))
+                    results[dependencyType][packageUrl] = self.getAllNestedDependenciesForPackage(packageUrl)
         
         return results
     
@@ -95,7 +95,7 @@ class SoftwareCompositionAnalysis:
         node = {
             'name': packageInfo.get('name'),
             'version': packageInfo.get('version'),
-            'dependencies': []
+            'dependencies': {}
         }
 
         if packageUrl in visited:
@@ -108,7 +108,9 @@ class SoftwareCompositionAnalysis:
         childPackageUrl = self.dependencyGraph.get(packageUrl, [])
         for childUrl in childPackageUrl:
             childNode = self.getAllNestedDependenciesForPackage(childUrl, visited.copy())
-            node['dependencies'].append(childNode)
+            if childUrl not in node['dependencies']:
+                node['dependencies'][childUrl] = []
+            node['dependencies'][childUrl].append(childNode)
 
         return node
 
