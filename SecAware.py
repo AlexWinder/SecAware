@@ -7,56 +7,110 @@ import requests
 import sys
 
 class SoftwareCompositionAnalysis:
-    packages: dict
-    packageGraph: dict
+    dependencies: dict
+    dependencyGraph: dict
+    rawLockData: dict
+    rawManifestData: dict
+    versionLookup: dict
 
     def __init__(self):
-        self.packages = {}
-        self.packageGraph = {}
+        self.dependencies = {}
+        self.dependencyGraph = {}
+        self.rawLockData = {}
+        self.rawManifestData = {}
+        self.versionLookup = {}
+
+        self.ingestPackageManifests()
+        self.buildInventory()
+        self.buildAdjacencyList()
+
+        dumpJsonToFile("debug/dependencies.json", self.dependencies)
+        dumpJsonToFile("debug/dependencyGraph.json", self.dependencyGraph)
+        dumpJsonToFile("debug/dependencyNesting.json", self.getNestedDependencies())
 
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
+    
+    def ingestPackageManifests(self, manifestPath = "test-data/composer.json", lockfilePath = "test-data/composer.lock", ):
+        with open(manifestPath, 'r', encoding='utf-8') as f:
+            self.rawManifestData = json.load(f)
+        with open(lockfilePath, 'r', encoding='utf-8') as f:
+            self.rawLockData = json.load(f)
 
-    def populateDataFromPackageLockFile(self, lockFilePath="composer.lock"):
-        with open(lockFilePath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        packages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
+        self.versionLookup = {package['name']: package['version'] for package in packages}
 
-        # Combine all production and development dependencies into a single list
-        allDependencies = data.get('packages', []) + data.get('packages-dev', [])
-        
-        # Require packages don't include the specific locked version, so we need a lookup
-        nameAndVersion = {package['name']: package['version'] for package in allDependencies}
-
-        for dependency in allDependencies:
-            name = dependency['name']
-            version = dependency['version']
-            packageUrl = self.generatePackageUrl(name, version)
-
-            # Add the package to the internal data structure
-            self.packages[packageUrl] = {
-                'name': name,
-                'version': version,
+    def buildInventory(self):
+        allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
+        for package in allPackages:
+            packageUrl = self.generatePackageUrl(package['name'], package['version'])
+            self.dependencies[packageUrl] = {
+                'name': package['name'],
+                'version': package['version'],
                 'ecosystem': 'Packagist',
-                'vulnerabilities' : []
+                'vulnerabilities': []
             }
 
-            self.packageGraph[packageUrl] = []
+    def buildAdjacencyList(self):
+        allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
+        for package in allPackages:
+            parentPackageUrl = self.generatePackageUrl(package['name'], package['version'])
+            self.dependencyGraph[parentPackageUrl] = []
 
-            # Build the dependency graph
-            coreRequirements = dependency.get('require', {})
-            for coreName in coreRequirements:
-                # Strip out any platform requirements (e.g. php, ext-*)
-                if coreName.startswith("php") or coreName.startswith("ext-"):
-                    continue
-                
-                # Find what version of this dependency is actually used in the lock file
-                coreVersion = nameAndVersion.get(coreName)
-                if coreVersion:
-                    subDependencyPackageUrl = self.generatePackageUrl(coreName, coreVersion)
-                    self.packageGraph[packageUrl].append(subDependencyPackageUrl)
+            requirements = package.get('require', {})
+            for requirement in requirements:
+                if requirement == 'php' or requirement.startswith('ext-'): continue
 
-        dumpJsonToFile("dependencies.json", self.packages)
-        dumpJsonToFile("dependencyGraph.json", self.packageGraph)
+                requirementVersion = self.versionLookup.get(requirement)
+                if requirementVersion:
+                    childRequirementPackageUrl = self.generatePackageUrl(requirement, requirementVersion)
+                    self.dependencyGraph[parentPackageUrl].append(childRequirementPackageUrl)
+
+    def getNestedDependencies(self):
+        results = {
+            "production": [],
+            "development": []
+        }
+
+        productionRootDependencies = self.rawManifestData.get('require', {})
+        developmentRootDependencies = self.rawManifestData.get('require-dev', {})
+
+        for dependencyType in results.keys():
+            rootDependencies = productionRootDependencies if dependencyType == "production" else developmentRootDependencies
+            for dependency in rootDependencies:
+                if dependency.startswith(('php', 'ext-')): continue
+                version = self.versionLookup.get(dependency)
+                if version:
+                    packageUrl = self.generatePackageUrl(dependency, version)
+                    results[dependencyType].append(self.getAllNestedDependenciesForPackage(packageUrl))
+        
+        return results
+    
+    def getAllNestedDependenciesForPackage(self, packageUrl, visited=None):
+        if visited is None:
+            visited = set()
+
+        packageInfo = self.dependencies.get(packageUrl, {})
+
+        node = {
+            'name': packageInfo.get('name'),
+            'version': packageInfo.get('version'),
+            'dependencies': []
+        }
+
+        if packageUrl in visited:
+            node["note"] = "Circular reference detected"
+            return node
+
+        visited.add(packageUrl)
+
+        # Recursively add child dependencies
+        childPackageUrl = self.dependencyGraph.get(packageUrl, [])
+        for childUrl in childPackageUrl:
+            childNode = self.getAllNestedDependenciesForPackage(childUrl, visited.copy())
+            node['dependencies'].append(childNode)
+
+        return node
 
     def getKnownCVEsForPackageVersion(self, packageName, packageVersion):
         print(f"Identifying known CVEs for package: {packageName} {packageVersion}")
@@ -75,14 +129,14 @@ class SoftwareCompositionAnalysis:
         )
         data = response.json()
 
-        dumpJsonToFile("apiResponse.json", data)
+        dumpJsonToFile("debug/apiResponse.json", data)
 
         # Format the response into something a bit more usable
         for vuln in data.get('vulns', []):
-            if packageName not in self.packages:
-                self.packages[packageName] = []
+            if packageName not in self.dependencies:
+                self.dependencies[packageName] = []
             
-            self.packages[packageName].append({
+            self.dependencies[packageName].append({
                 'id': vuln.get('id'),
                 'aliases': vuln.get('aliases', []),
                 'published': vuln.get('published'),
@@ -109,11 +163,10 @@ def dumpJsonToFile(filename, data):
         json.dump(data, f, indent=2)
 
 if __name__ == '__main__':
-    sca = SoftwareCompositionAnalysis()
 
     checkDotEnvFileExists()
     loadEnvironmentVariables()
 
     print("SecAware - Currently Work in Progress")
 
-    sca.populateDataFromPackageLockFile()
+    sca = SoftwareCompositionAnalysis()
