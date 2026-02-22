@@ -44,7 +44,7 @@ class SoftwareCompositionAnalysis:
                 'name': package['name'],
                 'version': package['version'],
                 'ecosystem': 'Packagist',
-                'vulnerabilities': []
+                'vulnerabilities': {}
             }
 
     def buildAdjacencyList(self):
@@ -145,42 +145,42 @@ class SoftwareCompositionAnalysis:
                 vulns = result.get('vulns', [])
 
                 for vuln in vulns:
-                    self.dependencies[dep]['vulnerabilities'].append({
+                    self.dependencies[dep]['vulnerabilities'][vuln.get('id')] = {
                         'id': vuln.get('id')
-                    })
+                    }
 
         dumpJsonToFile("debug/apiRequest.json", payload)
         dumpJsonToFile("debug/apiResponse.json", data)
 
-    def getKnownCVEsForPackageVersion(self, packageName, packageVersion):
-        print(f"Identifying known CVEs for package: {packageName} {packageVersion}")
-        
-        payload = {
-            'version': packageVersion,
-            'package': {
-                'name': packageName,
-                'ecosystem': 'Packagist'
-            }
-        }
+        # The /querybatch endpoint doesn't return all details, so we now need to make individual requests for each CVE
+        for dep in self.dependencies.keys():
+            if len(self.dependencies[dep]['vulnerabilities']) == 0: continue
 
-        response = requests.post(
-            'https://api.osv.dev/v1/query',
-            json=payload,
-        )
-        data = response.json()
+            for vuln in self.dependencies[dep]['vulnerabilities'].keys():
+                print(f"Fetching details for {vuln}...")
+                response = requests.get(
+                    f"https://api.osv.dev/v1/vulns/{vuln}"
+                )
+                data = response.json()
 
-        dumpJsonToFile("debug/apiResponse.json", data)
+                # Different severity types are returned in an array
+                severityMapFromResponse = {item['type']: item['score'] for item in data.get('severity', [])}
 
-        # Format the response into something a bit more usable
-        for vuln in data.get('vulns', []):
-            if packageName not in self.dependencies:
-                self.dependencies[packageName] = []
-            
-            self.dependencies[packageName].append({
-                'id': vuln.get('id'),
-                'aliases': vuln.get('aliases', []),
-                'published': vuln.get('published'),
-            })
+                existingData = self.dependencies[dep]['vulnerabilities'].get(vuln, {})
+                additionalData = {
+                    'summary': data.get('summary'),
+                    'aliases': data.get('aliases', []),
+                    'cwe_ids': data.get('database_specific', {}).get('cwe_ids', []),
+                    'severity': {
+                        'OSV': data.get('database_specific', {}).get('severity', []),
+                        'CVSS_V3': severityMapFromResponse.get('CVSS_V3'),
+                        'CVSS_V4': severityMapFromResponse.get('CVSS_V4'),
+                    },
+                    'published': data.get('published'),
+                }
+
+                mergedData = {**existingData, **additionalData}
+                self.dependencies[dep]['vulnerabilities'][vuln] = mergedData
     
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
