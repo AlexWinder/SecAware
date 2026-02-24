@@ -4,7 +4,9 @@ import dotenv
 import json
 import os
 import requests
+import subprocess
 import sys
+import xml.etree.ElementTree as XML
 
 class SoftwareCompositionAnalysis:
     dependencies: dict
@@ -181,7 +183,30 @@ class SoftwareCompositionAnalysis:
 
                 mergedData = {**existingData, **additionalData}
                 self.dependencies[dep]['vulnerabilities'][vuln] = mergedData
-    
+
+class StaticAnalysis:
+    psalmConfigPath: str
+
+    def __init__(self):
+        self.buildConfigurationFile()
+        self.runAnalysis(relativeToScriptAbsolutePath("test-data/vuln.php"))
+
+    def buildConfigurationFile(self):
+        psalmConfig = XML.Element('psalm')
+        xmlTree = XML.ElementTree(psalmConfig)
+        self.psalmConfigPath = relativeToScriptAbsolutePath("test-data/psalm.xml")
+        xmlTree.write(self.psalmConfigPath, encoding='utf-8', xml_declaration=True)
+
+    def runAnalysis(self, target):
+        subprocess.run([
+            "psalm",
+            "--config", self.psalmConfigPath,
+            "--taint-analysis",
+            "--output-format=json",
+            "--report=" + relativeToScriptAbsolutePath("debug/psalm-output.json"),
+            target
+        ])
+
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
         errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
@@ -197,7 +222,11 @@ def errorMessage(message):
     print(f"\033[91m{message}\033[0m")
     sys.exit(1)
 
+def relativeToScriptAbsolutePath(relativePath):
+    return os.path.join(os.path.dirname(__file__), relativePath)
+
 def dumpJsonToFile(filename, data):
+    filename = relativeToScriptAbsolutePath(filename)
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
@@ -207,9 +236,12 @@ if __name__ == '__main__':
 
     print("SecAware - Currently Work in Progress")
 
-    sca = SoftwareCompositionAnalysis()
-    sca.getKnownCVEsForAllPackages()
+    # sca = SoftwareCompositionAnalysis()
+    # sca.getKnownCVEsForAllPackages()
 
-    dumpJsonToFile("debug/dependencies.json", sca.dependencies)
-    dumpJsonToFile("debug/dependencyGraph.json", sca.dependencyGraph)
-    dumpJsonToFile("debug/dependencyNesting.json", sca.getNestedDependencies())
+    # dumpJsonToFile("debug/dependencies.json", sca.dependencies)
+    # dumpJsonToFile("debug/dependencyGraph.json", sca.dependencyGraph)
+    # dumpJsonToFile("debug/dependencyNesting.json", sca.getNestedDependencies())
+
+    sa = StaticAnalysis()
+
