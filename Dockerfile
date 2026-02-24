@@ -16,6 +16,6 @@ RUN chmod +x /usr/local/bin/psalm
 
 # Install necessary Python dependencies
 RUN pip install --upgrade pip
-RUN pip install uv
+RUN pip install uv~=0.10.0
 
 CMD ["bash"]
