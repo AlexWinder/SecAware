@@ -278,6 +278,9 @@ class GenerativeAIAnalysis:
                         line:
                             type: string
                             description: The particular line that contains the suspected vulnerability, with the vulnerable portion highlighted.
+                        justification:
+                            type: string
+                            description: A concise but clear justification for why the identified line is vulnerable.
                         fix:
                             type: string
                             nullable: true
@@ -313,6 +316,7 @@ class GenerativeAIAnalysis:
                         required:
                         - description
                         - line
+                        - justification
                         - confidences
             ```
 
