@@ -6,7 +6,10 @@ import os
 import requests
 import subprocess
 import sys
+import textwrap
 import xml.etree.ElementTree as XML
+
+from OWASPContext import owaspTop10Context
 
 class SoftwareCompositionAnalysis:
     dependencies: dict
@@ -223,18 +226,90 @@ class GenerativeAI:
                 return
         
         errorMessage(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
+
+    def initialVulnerabilityScan(self):
+        systemPrompt = textwrap.dedent("""\
+            You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
+            You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
             
-    def checkForVulnerabilities(self):
+            When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. 
+            Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided.
+                                       
+            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities, with associated CWE IDs, include:
+        """)
+
+        systemPrompt += "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
+
+        systemPrompt += textwrap.dedent("""\
+            When you return results, this should be presented as a JSON object, which uses the following OpenAPI schema:
+            
+            ```yaml
+            type: object
+            properties:
+                vulnerabilities:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                        description:
+                            type: string
+                            description: A brief description of the vulnerability identified in the code.
+                        owasp_categories:
+                            type: array
+                            nullable: true
+                            description: A mapping to one of the OWASP Top 10 categories, if applicable. If the vulnerability does not fit into any OWASP category, this should be null.
+                            items:
+                                type: string
+                                description: The OWASP Top 10 category.
+                        cwe_ids:
+                            type: array
+                            nullable: true
+                            description: A mapping to one or more CWE IDs, if applicable. If the vulnerability does not fit into any CWE ID, this should be null.
+                            items:
+                                type: string
+                                description: The CWE ID.
+                        line:
+                            type: string
+                            description: The particular line that contains the suspected vulnerability, with the vulnerable portion highlighted.
+                        fix:
+                            type: string
+                            nullable: true
+                            description: Any fix recommended to resolve the identified vulnerability.
+                        required:
+                        - description
+                        - line
+            ```
+                                       
+            Do not return with any code blocks, markdown, formatting, or extra text. Instead, deliver the JSON response inside triple equal signs, like this:
+        
+            ===
+            {"vulnerabilities": [{"description": "...", "owasp_categories": [...], "cwe_ids": [...], "line": "...", "fix": "..."}]}
+            ===
+        """)
+
+        print(systemPrompt)
+        
+        contentPrompt = textwrap.dedent("""\
+            ```php
+            <?php
+            $user_input = $_GET['username'];
+            echo 'Hello, ' . $user_input;
+            ?>
+            ```
+        """)
+
+        print(contentPrompt)
+
         json = {
             "model": self.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. You are primarily focused on PHP applications. You have a deep understanding of common vulnerability types from the OWASP Top 10. When given a code file, you will analyse it for potential security vulnerabilities. When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided."
+                    "content": systemPrompt
                 },
                 {
                     "role": "user",
-                    "content": "Please analyse the following PHP code for potential security vulnerabilities and provide a concise but accurate explanation of any vulnerabilities you find.\n\n```php\n<?php\n$user_input = $_GET['username'];\necho 'Hello, ' . $user_input;\n?>\n```"
+                    "content": contentPrompt
                 }
             ]
         }
@@ -290,5 +365,5 @@ if __name__ == '__main__':
     # sa = StaticAnalysis()
 
     ai = GenerativeAI()
-    ai.checkForVulnerabilities()
+    ai.initialVulnerabilityScan()
 
