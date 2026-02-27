@@ -211,7 +211,7 @@ class StaticAnalysis:
             target
         ])
 
-class GenerativeAI:
+class GenerativeAIAnalysis:
     model: str
 
     def __init__(self):
@@ -400,6 +400,6 @@ if __name__ == '__main__':
 
     # sa = StaticAnalysis()
 
-    ai = GenerativeAI()
-    ai.vulnerabilityScanForFile(relativeToScriptAbsolutePath("test-data/vuln2.php"))
+    aia = GenerativeAIAnalysis()
+    aia.vulnerabilityScanForFile(relativeToScriptAbsolutePath("test-data/vuln2.php"))
 
