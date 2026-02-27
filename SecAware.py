@@ -207,6 +207,47 @@ class StaticAnalysis:
             target
         ])
 
+class GenerativeAI:
+    model: str
+
+    def __init__(self):
+        self.model = "google/gemma-3-4b"
+        self.checkApiAccessible()
+
+    def checkApiAccessible(self):
+        response = requests.get('http://host.docker.internal:1234/v1/models')
+
+        for model in response.json().get('data', []):
+            if model.get('id') == self.model:
+                print(f"Successfully connected to AI API and found model {self.model}")
+                return
+        
+        errorMessage(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
+            
+    def checkForVulnerabilities(self):
+        json = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. You are primarily focused on PHP applications. You have a deep understanding of common vulnerability types from the OWASP Top 10. When given a code file, you will analyse it for potential security vulnerabilities. When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided."
+                },
+                {
+                    "role": "user",
+                    "content": "Please analyse the following PHP code for potential security vulnerabilities and provide a concise but accurate explanation of any vulnerabilities you find.\n\n```php\n<?php\n$user_input = $_GET['username'];\necho 'Hello, ' . $user_input;\n?>\n```"
+                }
+            ]
+        }
+        dumpJson(json)
+
+        response = requests.post(
+            'http://host.docker.internal:1234/v1/chat/completions', 
+            headers={'Content-Type': 'application/json'},
+            json=json
+        )
+
+        dumpJson(response.json())
+
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
         errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
@@ -224,6 +265,9 @@ def errorMessage(message):
 
 def relativeToScriptAbsolutePath(relativePath):
     return os.path.join(os.path.dirname(__file__), relativePath)
+
+def dumpJson(data):
+    print(json.dumps(data, indent=2))
 
 def dumpJsonToFile(filename, data):
     filename = relativeToScriptAbsolutePath(filename)
@@ -243,5 +287,8 @@ if __name__ == '__main__':
     # dumpJsonToFile("debug/dependencyGraph.json", sca.dependencyGraph)
     # dumpJsonToFile("debug/dependencyNesting.json", sca.getNestedDependencies())
 
-    sa = StaticAnalysis()
+    # sa = StaticAnalysis()
+
+    ai = GenerativeAI()
+    ai.checkForVulnerabilities()
 
