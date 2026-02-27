@@ -3,6 +3,7 @@
 import dotenv
 import json
 import os
+import re
 import requests
 import subprocess
 import sys
@@ -260,7 +261,7 @@ class GenerativeAI:
                             description: A mapping to one of the OWASP Top 10 categories, if applicable. If the vulnerability does not fit into any OWASP category, this should be null.
                             items:
                                 type: string
-                                description: The OWASP Top 10 category.
+                                description: The OWASP Top 10 category, e.g. "A05:2025 - Injection".
                         cwe_ids:
                             type: array
                             nullable: true
@@ -279,12 +280,10 @@ class GenerativeAI:
                         - description
                         - line
             ```
-                                       
-            Do not return with any code blocks, markdown, formatting, or extra text. Instead, deliver the JSON response inside triple equal signs, like this:
-        
-            ===
-            {"vulnerabilities": [{"description": "...", "owasp_categories": [...], "cwe_ids": [...], "line": "...", "fix": "..."}]}
-            ===
+
+            Output ONLY valid JSON.
+            Do NOT include any code fences, markdown, delimiters, formatting or extra text.
+            Output MUST be parseable directly as JSON without any additional processing.
         """)
 
         print(systemPrompt)
@@ -322,6 +321,13 @@ class GenerativeAI:
         )
 
         dumpJson(response.json())
+
+        responseJson = response.json()
+        if 'choices' in responseJson:
+            aiMessageContent = responseJson['choices'][0]['message']['content']
+            
+            cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", aiMessageContent.strip(), flags=re.DOTALL)
+            print(cleanedResponse)
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
