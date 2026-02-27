@@ -228,7 +228,13 @@ class GenerativeAI:
         
         errorMessage(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
 
-    def initialVulnerabilityScan(self):
+    def vulnerabilityScanForFile(self, filePath):
+        for i in range(3):
+            results = self.initialVulnerabilityScan(filePath)
+
+            dumpJsonToFile(f"debug/initialScanAttempt{i+1}.json", results)
+
+    def initialVulnerabilityScan(self, filePath):
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
             You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
@@ -287,19 +293,13 @@ class GenerativeAI:
         """)
 
         print(systemPrompt)
+
+        with open(filePath, 'r', encoding='utf-8') as f:
+            fileContent = f.read()
         
-        contentPrompt = textwrap.dedent("""\
-            ```php
-            <?php
-            $user_input = $_GET['username'];
-            echo 'Hello, ' . $user_input;
-            ?>
-            ```
-        """)
+        print(fileContent)
 
-        print(contentPrompt)
-
-        json = {
+        payload = {
             "model": self.model,
             "messages": [
                 {
@@ -308,16 +308,16 @@ class GenerativeAI:
                 },
                 {
                     "role": "user",
-                    "content": contentPrompt
+                    "content": fileContent
                 }
             ]
         }
-        dumpJson(json)
+        dumpJson(payload)
 
         response = requests.post(
             'http://host.docker.internal:1234/v1/chat/completions', 
             headers={'Content-Type': 'application/json'},
-            json=json
+            json=payload
         )
 
         dumpJson(response.json())
@@ -328,6 +328,7 @@ class GenerativeAI:
             
             cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", aiMessageContent.strip(), flags=re.DOTALL)
             print(cleanedResponse)
+            return json.loads(cleanedResponse)
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
@@ -371,5 +372,5 @@ if __name__ == '__main__':
     # sa = StaticAnalysis()
 
     ai = GenerativeAI()
-    ai.initialVulnerabilityScan()
+    ai.vulnerabilityScanForFile(relativeToScriptAbsolutePath("test-data/vuln2.php"))
 
