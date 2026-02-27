@@ -232,7 +232,7 @@ class GenerativeAI:
         for i in range(3):
             results = self.initialVulnerabilityScan(filePath)
 
-            dumpJsonToFile(f"debug/initialScanAttempt{i+1}.json", results)
+            dumpJsonToFile(f"debug/initialAIScanAttempt{i+1}.json", results)
 
     def initialVulnerabilityScan(self, filePath):
         systemPrompt = textwrap.dedent("""\
@@ -282,9 +282,38 @@ class GenerativeAI:
                             type: string
                             nullable: true
                             description: Any fix recommended to resolve the identified vulnerability.
+                        confidences:
+                            type: object
+                            properties:
+                                description:
+                                    type: integer
+                                    max: 10
+                                    min: 0
+                                    description: A confidence score of the defined description.
+                                owasp_categories:
+                                    type: integer
+                                    max: 10
+                                    min: 0
+                                    description: A confidence score of the defined OWASP categories.
+                                cwe_ids:
+                                    type: integer
+                                    max: 10
+                                    min: 0
+                                    description: A confidence score of the defined CWE IDs.
+                                line:
+                                    type: integer
+                                    max: 10
+                                    min: 0
+                                    description: A confidence score of the identified line.
+                                overall:
+                                    type: integer
+                                    max: 10
+                                    min: 0
+                                    description: A confidence score of the overall vulnerability finding.
                         required:
                         - description
                         - line
+                        - confidences
             ```
 
             Output ONLY valid JSON.
