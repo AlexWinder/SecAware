@@ -212,9 +212,11 @@ class StaticAnalysis:
         ])
 
 class GenerativeAIAnalysis:
+    findings: dict
     model: str
 
     def __init__(self):
+        self.findings = {}
         self.model = "google/gemma-3-4b"
         self.checkApiAccessible()
 
@@ -229,10 +231,13 @@ class GenerativeAIAnalysis:
         errorMessage(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
 
     def vulnerabilityScanForFile(self, filePath):
+        # We scan several times because AI is non-deterministic
         for i in range(3):
-            results = self.initialVulnerabilityScan(filePath)
-
-            dumpJsonToFile(f"debug/initialAIScanAttempt{i+1}.json", results)
+            self.initialVulnerabilityScan(filePath)
+        
+        jsonFileName = str(filePath).lstrip('/').replace('/', '') + ".json"
+        
+        dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
 
     def systemPromptBase(self):
         return textwrap.dedent("""\
@@ -370,9 +375,16 @@ class GenerativeAIAnalysis:
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
+            # Tidy up the response by removing any markdown code blocks
             cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", aiMessageContent.strip(), flags=re.DOTALL)
             print(cleanedResponse)
-            return json.loads(cleanedResponse)
+
+            if filePath not in self.findings:
+                self.findings[filePath] = {
+                    "file": filePath,
+                    "vulnerabilities": []
+                }
+            self.findings[filePath]["vulnerabilities"].append(json.loads(cleanedResponse))
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
