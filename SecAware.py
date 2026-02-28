@@ -234,20 +234,22 @@ class GenerativeAIAnalysis:
 
             dumpJsonToFile(f"debug/initialAIScanAttempt{i+1}.json", results)
 
-    def initialVulnerabilityScan(self, filePath):
-        systemPrompt = textwrap.dedent("""\
+    def systemPromptBase(self):
+        return textwrap.dedent("""\
             You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
             You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
             
             When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. 
             Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided.
-                                       
-            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities, with associated CWE IDs, include:
         """)
-
-        systemPrompt += "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
-
-        systemPrompt += textwrap.dedent("""\
+    
+    def systemPromptOWASPContextMinimal(self):
+        return textwrap.dedent("""\
+            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities, with associated CWE IDs, include:
+        """) + "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
+    
+    def systemPromptVulnerabilityJsonSchema(self):
+        return textwrap.dedent("""\
             When you return results, this should be presented as a JSON object, which uses the following OpenAPI schema:
             
             ```yaml
@@ -319,11 +321,20 @@ class GenerativeAIAnalysis:
                         - justification
                         - confidences
             ```
+        """)
 
+    def systemPromptExplicitJson(self):
+        return textwrap.dedent("""\
             Output ONLY valid JSON.
             Do NOT include any code fences, markdown, delimiters, formatting or extra text.
             Output MUST be parseable directly as JSON without any additional processing.
         """)
+
+    def initialVulnerabilityScan(self, filePath):
+        systemPrompt = self.systemPromptBase()
+        systemPrompt += self.systemPromptOWASPContextMinimal()
+        systemPrompt += self.systemPromptVulnerabilityJsonSchema()
+        systemPrompt += self.systemPromptExplicitJson()
 
         print(systemPrompt)
 
