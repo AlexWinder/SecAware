@@ -8,10 +8,10 @@ authors = [
     { name = "Alex Winder", email = "contact@alexwinder.com" }
 ]
 dependencies = [
-    "python-dotenv~=1.2.0",
-    "requests~=2.32.0"
+    "python-dotenv==1.2.2",
+    "requests==2.32.5"
 ]
 
 [build-system]
-requires = ["hatchling~=1.28.0"]
+requires = ["hatchling==1.29.0"]
 build-backend = "hatchling.build"
