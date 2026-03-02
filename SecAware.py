@@ -233,27 +233,17 @@ class GenerativeAIAnalysis:
     def vulnerabilityScanForFile(self, filePath):
         # We scan several times because AI is non-deterministic
         for i in range(3):
+            print(f'Scanning file {filePath}, iteration {i+1}/3...')
             self.initialVulnerabilityScan(filePath)
         
         jsonFileName = str(filePath).lstrip('/').replace('/', '') + ".json"
         
-        dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
+        print(f"Aggregating findings for file {filePath}...")
+        self.aggregateInitialFindings(filePath)
 
-    def systemPromptBase(self):
-        return textwrap.dedent("""\
-            You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
-            You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
-            
-            When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. 
-            Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided.
-        """)
+        dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
     
-    def systemPromptOWASPContextMinimal(self):
-        return textwrap.dedent("""\
-            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities, with associated CWE IDs, include:
-        """) + "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
-    
-    def systemPromptVulnerabilityJsonSchema(self):
+    def vulnerabilityJsonSchema(self):
         return textwrap.dedent("""\
             When you return results, this should be presented as a JSON object, which uses the following OpenAPI schema:
             
@@ -299,27 +289,27 @@ class GenerativeAIAnalysis:
                                     type: integer
                                     max: 10
                                     min: 0
-                                    description: A confidence score of the defined description.
+                                    description: A confidence score of the defined description. 10 = complete confidence. 0 = no confidence.
                                 owasp_categories:
                                     type: integer
                                     max: 10
                                     min: 0
-                                    description: A confidence score of the defined OWASP categories.
+                                    description: A confidence score of the defined OWASP categories. 10 = complete confidence. 0 = no confidence.
                                 cwe_ids:
                                     type: integer
                                     max: 10
                                     min: 0
-                                    description: A confidence score of the defined CWE IDs.
+                                    description: A confidence score of the defined CWE IDs. 10 = complete confidence. 0 = no confidence.
                                 line:
                                     type: integer
                                     max: 10
                                     min: 0
-                                    description: A confidence score of the identified line.
+                                    description: A confidence score of the identified line. 10 = complete confidence. 0 = no confidence.
                                 overall:
                                     type: integer
                                     max: 10
                                     min: 0
-                                    description: A confidence score of the overall vulnerability finding.
+                                    description: A confidence score of the overall vulnerability finding. 10 = complete confidence. 0 = no confidence.
                         required:
                         - description
                         - line
@@ -327,8 +317,8 @@ class GenerativeAIAnalysis:
                         - confidences
             ```
         """)
-
-    def systemPromptExplicitJson(self):
+    
+    def explicitJsonOutputInstruction(self):
         return textwrap.dedent("""\
             Output ONLY valid JSON.
             Do NOT include any code fences, markdown, delimiters, formatting or extra text.
@@ -336,18 +326,22 @@ class GenerativeAIAnalysis:
         """)
 
     def initialVulnerabilityScan(self, filePath):
-        systemPrompt = self.systemPromptBase()
-        systemPrompt += self.systemPromptOWASPContextMinimal()
-        systemPrompt += self.systemPromptVulnerabilityJsonSchema()
-        systemPrompt += self.systemPromptExplicitJson()
+        systemPrompt = textwrap.dedent("""\
+            You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
+            You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
+            
+            When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. 
+            Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided.
+                                       
+            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities include:
+        """) + "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
 
-        print(systemPrompt)
+        systemPrompt += self.vulnerabilityJsonSchema()
+        systemPrompt += self.explicitJsonOutputInstruction()
 
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
         
-        print(fileContent)
-
         payload = {
             "model": self.model,
             "messages": [
@@ -361,7 +355,6 @@ class GenerativeAIAnalysis:
                 }
             ]
         }
-        dumpJson(payload)
 
         response = requests.post(
             'http://host.docker.internal:1234/v1/chat/completions', 
@@ -369,22 +362,90 @@ class GenerativeAIAnalysis:
             json=payload
         )
 
-        dumpJson(response.json())
-
         responseJson = response.json()
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
-            # Tidy up the response by removing any markdown code blocks
-            cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", aiMessageContent.strip(), flags=re.DOTALL)
-            print(cleanedResponse)
+            cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
             if filePath not in self.findings:
                 self.findings[filePath] = {
                     "file": filePath,
                     "vulnerabilities": []
                 }
-            self.findings[filePath]["vulnerabilities"].append(json.loads(cleanedResponse))
+            self.findings[filePath]["vulnerabilities"].append(json.loads(cleanedResponse)['vulnerabilities'])
+
+    def cleanUpResponse(self, response):
+        # Tidy up the response by removing any markdown code blocks
+        cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", response.strip(), flags=re.DOTALL)
+        return cleanedResponse
+
+    def aggregateInitialFindings(self, filePath):
+        systemPrompt = textwrap.dedent("""\
+            You are a cybersecurity data processor, specialising in vulnerability management.
+            Your sole objective is to take a list of existing vulnerability findings and consolidate them into a unique, deduplicated JSON list.
+            
+            As part of your analysis, you should also ensure that the OWASP and CWE mappings are correctly allocated.
+
+            Do NOT scan for new vulnerabilities.
+            If multiple findings refer to the same vulnerability with the same CWE/OWASP mapping, these should be merged into a single finding in the output.
+            Use the provided source code ONLY as a reference to verify and consolidate the existing findings.
+                                       
+            When declaring confidence scores for each vulnerability, adjust accordingly based on the aggregation that was needed to form the final result. For example, if multiple findings are conflicting, then the confidence score may need to be reduced. A confidence score can help a human reviewer understand how certain you are about the accuracy of your findings. For all confidence scores, a 0 indicates no confidence, and a 10 indicates complete confidence.
+        """)
+
+        systemPrompt += self.vulnerabilityJsonSchema()
+        systemPrompt += self.explicitJsonOutputInstruction()
+
+        with open(filePath, 'r', encoding='utf-8') as f:
+            fileContent = f.read()
+
+        userPrompt = textwrap.dedent(f"""\
+            JSON findings:
+                                     
+            ```json
+            {self.findings}
+            ```
+                                     
+            For reference, the original code file:
+            
+            ```
+            {fileContent}
+            ```
+        """)
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": systemPrompt
+                },
+                {
+                    "role": "user",
+                    "content": userPrompt
+                }
+            ]
+        }
+
+        response = requests.post(
+            'http://host.docker.internal:1234/v1/chat/completions', 
+            headers={'Content-Type': 'application/json'},
+            json=payload
+        )
+
+        responseJson = response.json()
+        if 'choices' in responseJson:
+            aiMessageContent = responseJson['choices'][0]['message']['content']
+            
+            cleanedResponse = self.cleanUpResponse(aiMessageContent)
+
+            if filePath not in self.findings:
+                self.findings[filePath] = {
+                    "file": filePath,
+                    "vulnerabilities": []
+                }
+            self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)['vulnerabilities']
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
