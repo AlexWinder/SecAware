@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import dotenv
 import json
 import os
@@ -10,7 +11,9 @@ import sys
 import textwrap
 import xml.etree.ElementTree as XML
 
-from OWASPContext import owaspTop10Context
+from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
+from app.utils.ConsoleColour import ConsoleColour
+from app.data.OWASPContext import owaspTop10Context
 
 class SoftwareCompositionAnalysis:
     dependencies: dict
@@ -507,19 +510,8 @@ class GenerativeAIAnalysis:
             
             self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)[filePath]['vulnerabilities']
 
-def checkDotEnvFileExists():
-    if not os.path.exists(".env"):
-        errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
-
-def loadEnvironmentVariables():
-    dotenv.load_dotenv()
-    existingVars = ["GITHUB_TOKEN"]
-    for var in existingVars:
-        if var not in os.environ:
-            errorMessage(f"{var} environment variable not set within .env file")
-
 def errorMessage(message):
-    print(f"\033[91m{message}\033[0m")
+    ConsoleColour.toRed(message)
     sys.exit(1)
 
 def relativeToScriptAbsolutePath(relativePath):
@@ -533,11 +525,52 @@ def dumpJsonToFile(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
-if __name__ == '__main__':
-    checkDotEnvFileExists()
-    loadEnvironmentVariables()
+class SecAware:
+    aiBaseUrl: str
 
-    print("SecAware - Currently Work in Progress")
+    def __init__(self, aiBaseUrl):
+        self.aiBaseUrl = self.formatBaseUrl(aiBaseUrl)
+
+        self.checkDotEnvFileExists()
+        self.loadEnvironmentVariables()
+
+    def checkDotEnvFileExists(self):
+        if not os.path.exists(".env"):
+            errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
+
+    def loadEnvironmentVariables(self):
+        dotenv.load_dotenv()
+        existingVars = ["GITHUB_TOKEN"]
+        for var in existingVars:
+            if var not in os.environ:
+                errorMessage(f"{var} environment variable not set within .env file")
+
+    def formatBaseUrl(self, url):
+        return url.rstrip('/')
+
+if __name__ == '__main__':
+
+    print(ConsoleColour.toGreen("SecAware - A Context-Aware Software Vulnerability Detection Tool") + "\n")
+
+    description = textwrap.dedent("""\
+        SecAware is a context-aware software vulnerability detection tool. It combines traditional software composition analysis and static analysis techniques with generative AI capability to provide comprehensive vulnerability detection for software applications.
+    """)
+
+    parser = argparse.ArgumentParser(
+        description=description,
+        formatter_class=ArgparseCustomFormatter
+    )
+    parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API.')
+
+    args = parser.parse_args()
+
+    secAware = SecAware(
+        aiBaseUrl=args.ai_rest_base_url,
+        
+    )
+
+
+
 
     # sca = SoftwareCompositionAnalysis()
     # sca.getKnownCVEsForAllPackages()
@@ -548,6 +581,6 @@ if __name__ == '__main__':
 
     # sa = StaticAnalysis()
 
-    aia = GenerativeAIAnalysis()
-    aia.vulnerabilityScanForFile(relativeToScriptAbsolutePath("test-data/vuln2.php"))
+    # aia = GenerativeAIAnalysis()
+    # aia.vulnerabilityScanForFile(relativeToScriptAbsolutePath("test-data/vuln2.php"))
 
