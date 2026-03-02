@@ -241,6 +241,9 @@ class GenerativeAIAnalysis:
         print(f"Aggregating findings for file {filePath}...")
         self.aggregateInitialFindings(filePath)
 
+        print(f"Assigning correct CWE and OWASP categories for file {filePath}...")
+        self.assignCorrectCWEOWASPCategories(filePath)
+
         dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
     
     def vulnerabilityJsonSchema(self):
@@ -446,6 +449,63 @@ class GenerativeAIAnalysis:
                     "vulnerabilities": []
                 }
             self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)['vulnerabilities']
+
+    def assignCorrectCWEOWASPCategories(self, filePath):
+        systemPrompt = textwrap.dedent("""\
+            You are a cybersecurity specialist, specialising in vulnerability classification and management.
+            Your primary focus is to ensure that any identified vulnerabilities are correctly mapped to their appropriate CWE and OWASP categories.
+            When presented with a list of vulnerabilities, your task is to review each one and assign the most accurate CWE ID(s) and OWASP Top 10 category, if applicable.
+                                       
+            It is very important that the CWE and OWASP mappings are as accurate as possible.
+            A list of OWASP Top 10 categories and their allowed mapped CWE IDs are as follows:
+        """)
+
+        for item in owaspTop10Context:
+            systemPrompt += f"- {item['id']} {item['name']} ({', '.join([f'{cwe['id']}' for cwe in item.get('cwe_ids', [])])})\n"
+        
+        systemPrompt += textwrap.dedent("""\
+            This list is authoritative, and so if there is any mismatch between the OWASP category or the CWE IDs, then you should adjust the mappings to ensure they are correct according to the above list.
+                                       
+            You should not update any other part of the vulnerability finding except for the CWE and OWASP mappings.
+                                        
+            When returning a response, this should be in the same format as the JSON which was submitted.
+        """)
+
+        systemPrompt += self.explicitJsonOutputInstruction()
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": systemPrompt
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(self.findings)
+                }
+            ]
+        }
+
+        response = requests.post(
+            'http://host.docker.internal:1234/v1/chat/completions', 
+            headers={'Content-Type': 'application/json'},
+            json=payload
+        )
+
+        responseJson = response.json()
+        if 'choices' in responseJson:
+            aiMessageContent = responseJson['choices'][0]['message']['content']
+            
+            cleanedResponse = self.cleanUpResponse(aiMessageContent)
+
+            if filePath not in self.findings:
+                self.findings[filePath] = {
+                    "file": filePath,
+                    "vulnerabilities": []
+                }
+            
+            self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)[filePath]['vulnerabilities']
 
 def checkDotEnvFileExists():
     if not os.path.exists(".env"):
