@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 owaspTop10Context = [
     # https://owasp.org/Top10/2025/
     {
