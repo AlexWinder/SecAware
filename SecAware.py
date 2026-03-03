@@ -2,8 +2,10 @@
 
 import argparse
 import dotenv
+import git
 import json
 import os
+import pathlib
 import re
 import requests
 import subprocess
@@ -547,6 +549,19 @@ class SecAware:
 
     def formatBaseUrl(self, url):
         return url.rstrip('/')
+    
+    def gitShallowClone(self, repoUrl, commitHash):
+        project = pathlib.Path(repoUrl)
+        projectSlug = f"{project.parent.name}/{project.stem}/{commitHash[:7]}"
+        repoPath = relativeToScriptAbsolutePath(f"git-project-data/{projectSlug}")
+
+        # Workaround to allow GitPython within Docker environments due to file permissions
+        subprocess.run(['git', 'config', '--global', '--replace-all', 'safe.directory', '*'])
+
+        repo = git.Repo.init(repoPath)
+        origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
+        origin.fetch(commitHash, depth=2) # 2 depth needed to allow diffing from the parent
+        repo.git.checkout('FETCH_HEAD')
 
 if __name__ == '__main__':
 
@@ -561,12 +576,17 @@ if __name__ == '__main__':
         formatter_class=ArgparseCustomFormatter
     )
     parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API.')
-
+    
     args = parser.parse_args()
 
     secAware = SecAware(
         aiBaseUrl=args.ai_rest_base_url,
-        
+    )
+
+    secAware.gitShallowClone(
+        # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
+        repoUrl='https://github.com/in2code-de/ipandlanguageredirect.git',
+        commitHash='b814ae1bc545187f924734c1f3ee0999153264ae'
     )
 
 
