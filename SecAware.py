@@ -17,33 +17,48 @@ from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
 from app.utils.ConsoleColour import ConsoleColour
 from app.data.OWASPContext import owaspTop10Context
 
+class SCAMissingDependencyFilesError(Exception):
+    pass
+
 class SoftwareCompositionAnalysis:
     dependencies: dict
     dependencyGraph: dict
+    directoryPath: str
     rawLockData: dict
     rawManifestData: dict
     versionLookup: dict
 
-    def __init__(self):
+    def __init__(self, directoryPath=None):
         self.dependencies = {}
         self.dependencyGraph = {}
         self.rawLockData = {}
         self.rawManifestData = {}
         self.versionLookup = {}
+        self.directoryPath = directoryPath
 
-        self.ingestPackageManifests()
-        self.buildInventory()
-        self.buildAdjacencyList()
+        if self.directoryPath:
+            self.ingestPackageManifests()
+            self.buildInventory()
+            self.buildAdjacencyList()
+        else:
+            print("No directory path provided for Software Composition Analysis. Skipping.")
 
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
     
-    def ingestPackageManifests(self, manifestPath = "test-data/composer.json", lockfilePath = "test-data/composer.lock", ):
+    def ingestPackageManifests(self):
+        manifestPath = os.path.join(self.directoryPath, "composer.json")
+        lockfilePath = os.path.join(self.directoryPath, "composer.lock")
+
+        # Both files are needed to perform an SCA scan
+        if not os.path.exists(manifestPath) or not os.path.exists(lockfilePath):
+            raise SCAMissingDependencyFilesError(f"Missing composer.json or composer.lock file in directory {self.directoryPath}. Both files are required to perform Software Composition Analysis.")
+
         with open(manifestPath, 'r', encoding='utf-8') as f:
             self.rawManifestData = json.load(f)
         with open(lockfilePath, 'r', encoding='utf-8') as f:
             self.rawLockData = json.load(f)
-
+        
         packages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
         self.versionLookup = {package['name']: package['version'] for package in packages}
 
@@ -136,14 +151,6 @@ class SoftwareCompositionAnalysis:
                     'ecosystem': 'Packagist',
                 }
             }) 
-
-        payload['queries'].append({
-            'version': 'v11.9.0',
-            'package': {
-                'name': 'laravel/framework',
-                'ecosystem': 'Packagist',
-            }
-        })
         
         response = requests.post(
             'https://api.osv.dev/v1/querybatch',
@@ -537,11 +544,22 @@ class GitHelper:
         # Workaround to allow GitPython within Docker environments due to file permissions
         subprocess.run(['git', 'config', '--global', '--replace-all', 'safe.directory', '*'])
 
-        repo = git.Repo.init(repoPath)
-        origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
-        # 2 depth needed to allow diffing from the parent
-        origin.fetch(commitHash, depth=2)
-        repo.git.checkout('FETCH_HEAD')
+        # If the repository already exists at the correct commit hash, then skip cloning
+        if os.path.exists(repoPath):
+            existingRepo = git.Repo(repoPath)
+            if existingRepo.head.commit.hexsha.startswith(commitHash):
+                print(f"Repository already exists at {repoPath} with the correct commit hash. Skipping clone.")
+                return repoPath
+            else:
+                print(f"Repository already exists at {repoPath} but with a different commit hash. Removing and recloning.")
+                subprocess.run(['rm', '-rf', repoPath])
+        else:
+            print(f"Cloning repository {repoUrl} at commit {commitHash} into {repoPath}...")
+            repo = git.Repo.init(repoPath)
+            origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
+            # 2 depth needed to allow diffing from the parent
+            origin.fetch(commitHash, depth=2)
+            repo.git.checkout('FETCH_HEAD')
 
         return repoPath
     
@@ -553,24 +571,36 @@ class GitHelper:
         return changedFiles
 
 class SecAware:
-    aiBaseUrl: str
+    aiRestApiBaseUrl: str
+    codeFilesForAnalysis: list
+    componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
+    dependencyManagementFiles: list
     gitChangedFiles: list
     gitRepoLocalPath: str
     gitRepoRemoteUrl: str
     gitCommitHash: str
 
-    def __init__(self, aiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
-        self.aiBaseUrl = self.formatBaseUrl(aiBaseUrl)
+
+    def __init__(self, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
+        self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
 
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
-
+        
+        print(ConsoleColour.toYellow("Preparing Git Repository"))
         self.gitRepoLocalPath = GitHelper.shallowClone(self.gitRepoRemoteUrl, self.gitCommitHash)
         self.gitChangedFiles = GitHelper.diffFiles(self.gitRepoLocalPath, self.gitCommitHash)
+        self.codeFilesForAnalysis = self.identifySuitableFilesForAnalysis(self.gitChangedFiles)
+        self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
+        print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.")
 
-        print(self.gitChangedFiles)
+        print(ConsoleColour.toYellow("Software Composition Analsysis (SCA)"))
+        try:
+            self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
+        except SCAMissingDependencyFilesError:
+            print(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
 
     def checkDotEnvFileExists(self):
         if not os.path.exists(".env"):
@@ -585,6 +615,18 @@ class SecAware:
 
     def formatBaseUrl(self, url):
         return url.rstrip('/')
+    
+    def identifySuitableFilesForAnalysis(self, allFiles):
+        suitableFiles = [file for file in allFiles if file.endswith('.php')]
+        return suitableFiles
+    
+    def detectDependencyManagementFiles(self, directoryPath):
+        dependencyFiles = []
+        for root, dirs, files in os.walk(directoryPath):
+            for file in files:
+                if file in ['composer.json', 'composer.lock']:
+                    dependencyFiles.append(os.path.join(root, file))
+        return dependencyFiles
 
 if __name__ == '__main__':
 
@@ -599,13 +641,15 @@ if __name__ == '__main__':
         formatter_class=ArgparseCustomFormatter
     )
     parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API.')
+    # Default values are a known vulnerability
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
+    
     args = parser.parse_args()
 
     secAware = SecAware(
-        aiBaseUrl=args.ai_rest_base_url,
+        aiRestApiBaseUrl=args.ai_rest_base_url,
         gitRepoRemoteUrl=args.git_repo_url,
         gitCommitHash=args.git_commit_hash
     )
