@@ -2,7 +2,6 @@
 
 import argparse
 import dotenv
-import git
 import json
 import os
 import pathlib
@@ -13,10 +12,11 @@ import sys
 import textwrap
 import xml.etree.ElementTree as XML
 
-from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
-from app.utils.ConsoleColour import ConsoleColour
-from app.data.OWASPContext import owaspTop10Context
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
+from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
+from app.data.OWASPContext import owaspTop10Context
+from app.utils.ConsoleColour import ConsoleColour
+from app.utils.GitHelper import GitHelper
 
 class StaticAnalysis:
     analysisFindings: list
@@ -359,42 +359,6 @@ def dumpJsonToFile(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
-class GitHelper:
-    @staticmethod
-    def shallowClone(repoUrl, commitHash):
-        project = pathlib.Path(repoUrl)
-        projectSlug = f"{project.parent.name}/{project.stem}/{commitHash[:7]}"
-        repoPath = relativeToScriptAbsolutePath(f"git-project-data/{projectSlug}")
-
-        # Workaround to allow GitPython within Docker environments due to file permissions
-        subprocess.run(['git', 'config', '--global', '--replace-all', 'safe.directory', '*'])
-
-        # If the repository already exists at the correct commit hash, then skip cloning
-        if os.path.exists(repoPath):
-            existingRepo = git.Repo(repoPath)
-            if existingRepo.head.commit.hexsha.startswith(commitHash):
-                print(f"Repository already exists at {repoPath} with the correct commit hash. Skipping clone.")
-                return repoPath
-            else:
-                print(f"Repository already exists at {repoPath} but with a different commit hash. Removing and recloning.")
-                subprocess.run(['rm', '-rf', repoPath])
-        else:
-            print(f"Cloning repository {repoUrl} at commit {commitHash} into {repoPath}...")
-            repo = git.Repo.init(repoPath)
-            origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
-            # 2 depth needed to allow diffing from the parent
-            origin.fetch(commitHash, depth=2)
-            repo.git.checkout('FETCH_HEAD')
-
-        return repoPath
-    
-    @staticmethod
-    def diffFiles(repoPath, commitHash):
-        repo = git.Repo(repoPath)
-        diff = repo.git.diff(f"{commitHash}~1", commitHash, name_only=True)
-        changedFiles = diff.splitlines()
-        return changedFiles
-
 class SecAware:
     aiRestApiBaseUrl: str
     codeFilesForAnalysis: list
@@ -411,17 +375,23 @@ class SecAware:
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
 
+        gitPath = pathlib.Path(gitRepoRemoteUrl)
+        gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
+        self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
+
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
         
         print(ConsoleColour.toYellow("Preparing Git Repository for Analysis"))
-        self.gitRepoLocalPath = GitHelper.shallowClone(self.gitRepoRemoteUrl, self.gitCommitHash)
+        GitHelper.shallowClone(self.gitRepoLocalPath, self.gitRepoRemoteUrl, self.gitCommitHash)
         self.gitChangedFiles = GitHelper.diffFiles(self.gitRepoLocalPath, self.gitCommitHash)
+
+        print(ConsoleColour.toYellow("Detecting Files for Analysis"))
         self.codeFilesForAnalysis = self.identifySuitableFilesForAnalysis(self.gitChangedFiles)
         self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
         print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.\n")
 
-        print(ConsoleColour.toYellow("Software Composition Analsysis (SCA)"))
+        print(ConsoleColour.toYellow("Software Composition Analysis (SCA)"))
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
         except SCAMissingDependencyFilesError:
