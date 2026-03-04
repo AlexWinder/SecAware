@@ -19,27 +19,34 @@ from app.data.OWASPContext import owaspTop10Context
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
 
 class StaticAnalysis:
+    analysisFindings: list
     psalmConfigPath: str
 
-    def __init__(self):
+    def __init__(self, filesForAnalysis):
+        self.psalmConfigPath = "/tmp/psalm.xml"
+
         self.buildConfigurationFile()
-        self.runAnalysis(relativeToScriptAbsolutePath("test-data/vuln.php"))
+        self.runAnalysis(filesForAnalysis)
 
     def buildConfigurationFile(self):
+        if os.path.exists(self.psalmConfigPath):
+            print(ConsoleColour.toYellow(f"Psalm configuration file already exists at {self.psalmConfigPath}. Skipping configuration file creation."))
+            return
+
         psalmConfig = XML.Element('psalm')
         xmlTree = XML.ElementTree(psalmConfig)
-        self.psalmConfigPath = relativeToScriptAbsolutePath("test-data/psalm.xml")
         xmlTree.write(self.psalmConfigPath, encoding='utf-8', xml_declaration=True)
 
-    def runAnalysis(self, target):
-        subprocess.run([
+    def runAnalysis(self, targetDirectory):
+        result = subprocess.run([
             "psalm",
             "--config", self.psalmConfigPath,
             "--taint-analysis",
             "--output-format=json",
-            "--report=" + relativeToScriptAbsolutePath("debug/psalm-output.json"),
-            target
-        ])
+            targetDirectory
+        ], capture_output=True, text=True)
+
+        self.analysisFindings = json.loads(result.stdout)
 
 class GenerativeAIAnalysis:
     findings: dict
@@ -392,6 +399,7 @@ class SecAware:
     aiRestApiBaseUrl: str
     codeFilesForAnalysis: list
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
+    componentStaticAnalysis: StaticAnalysis
     dependencyManagementFiles: list
     gitChangedFiles: list
     gitRepoLocalPath: str
@@ -420,9 +428,11 @@ class SecAware:
             print(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
         except SCAMissingDirectoryError:
             print(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
-
         dumpJsonToFile("debug/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
-    
+
+        self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
+        dumpJsonToFile("debug/sa.json", self.componentStaticAnalysis.analysisFindings)
+
     def checkDotEnvFileExists(self):
         if not os.path.exists(".env"):
             errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
@@ -466,7 +476,7 @@ if __name__ == '__main__':
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
-    
+
     args = parser.parse_args()
 
     secAware = SecAware(
