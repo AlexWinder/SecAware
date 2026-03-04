@@ -232,7 +232,7 @@ class SoftwareCompositionAnalysis:
             if len(self.dependencies[dep]['vulnerabilities']) == 0: continue
 
             for vuln in self.dependencies[dep]['vulnerabilities'].keys():
-                print(f"Fetching details for {vuln}...")
+                print(f"Fetching vulnerability details for {vuln}...")
                 response = requests.get(
                     f"https://api.osv.dev/v1/vulns/{vuln}"
                 )
