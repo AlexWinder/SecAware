@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import requests
+import semantic_version
 import subprocess
 import sys
 import textwrap
@@ -20,10 +21,14 @@ from app.data.OWASPContext import owaspTop10Context
 class SCAMissingDependencyFilesError(Exception):
     pass
 
+class SCAMissingDirectoryError(Exception):
+    pass
+
 class SoftwareCompositionAnalysis:
     dependencies: dict
     dependencyGraph: dict
     directoryPath: str
+    isSimulatedLockData: bool
     rawLockData: dict
     rawManifestData: dict
     versionLookup: dict
@@ -31,17 +36,25 @@ class SoftwareCompositionAnalysis:
     def __init__(self, directoryPath=None):
         self.dependencies = {}
         self.dependencyGraph = {}
+        self.directoryPath = directoryPath
+        self.isSimulatedLockData = False
         self.rawLockData = {}
         self.rawManifestData = {}
         self.versionLookup = {}
-        self.directoryPath = directoryPath
 
         if self.directoryPath:
             self.ingestPackageManifests()
+            if self.isSimulatedLockData:
+                print(ConsoleColour.toYellow("Warning: No lock file found. Simulated lock data generated from manifest, but this may be inaccurate."))
             self.buildInventory()
             self.buildAdjacencyList()
+
+            self.getAllPossibleVersionsForSimulatedData()
+
+            self.getKnownCVEsForAllPackages()
+            self.getMoreDetailsForAllKnownCVEs()
         else:
-            print("No directory path provided for Software Composition Analysis. Skipping.")
+            raise SCAMissingDirectoryError("No directory path provided for Software Composition Analysis.")
 
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
@@ -50,17 +63,44 @@ class SoftwareCompositionAnalysis:
         manifestPath = os.path.join(self.directoryPath, "composer.json")
         lockfilePath = os.path.join(self.directoryPath, "composer.lock")
 
-        # Both files are needed to perform an SCA scan
-        if not os.path.exists(manifestPath) or not os.path.exists(lockfilePath):
-            raise SCAMissingDependencyFilesError(f"Missing composer.json or composer.lock file in directory {self.directoryPath}. Both files are required to perform Software Composition Analysis.")
+        # At least a composer.json file is required to perform SCA
+        if not os.path.exists(manifestPath):
+            raise SCAMissingDependencyFilesError(f"Missing composer.json in directory {self.directoryPath}. Required to perform Software Composition Analysis.")
 
         with open(manifestPath, 'r', encoding='utf-8') as f:
             self.rawManifestData = json.load(f)
-        with open(lockfilePath, 'r', encoding='utf-8') as f:
-            self.rawLockData = json.load(f)
+
+        # If we also have the lock file, we can perform more accurate analysis with exact versions
+        if os.path.exists(lockfilePath):
+            with open(lockfilePath, 'r', encoding='utf-8') as f:
+                self.rawLockData = json.load(f)
         
-        packages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
-        self.versionLookup = {package['name']: package['version'] for package in packages}
+            packages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
+            self.versionLookup = {package['name']: package['version'] for package in packages}
+        else:
+            # We don't have a lock file, so we can simulate one from the manifest, but this is less accurate
+            self.generateSimulatedLockData()
+
+    def generateSimulatedLockData(self):
+        self.isSimulatedLockData = True
+        mockPackages = []
+        allDependencies = {**self.rawManifestData.get('require', {}), **self.rawManifestData.get('require-dev', {})}
+
+        for packageName, versionConstraint in allDependencies.items():
+            if packageName.startswith(('php', 'ext-')): continue
+
+            mockPackages.append({
+                'name': packageName,
+                'version': versionConstraint,
+                # We don't have exact dependencies without the lock file, so we just leave this empty
+                'require': {}
+            })
+        
+        self.rawLockData = {
+            'packages': mockPackages,
+            'packages-dev': []
+        }
+        self.versionLookup = {package['name']: package['version'] for package in mockPackages}
 
     def buildInventory(self):
         allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
@@ -72,6 +112,9 @@ class SoftwareCompositionAnalysis:
                 'ecosystem': 'Packagist',
                 'vulnerabilities': {}
             }
+
+            if self.isSimulatedLockData:
+                self.dependencies[packageUrl]['possibleVersions'] = []
 
     def buildAdjacencyList(self):
         allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
@@ -139,38 +182,69 @@ class SoftwareCompositionAnalysis:
     def getKnownCVEsForAllPackages(self):
         # Capture the keys in a list to maintain the original order
         dependencies = list(self.dependencies.keys())
-        
-        payload = {'queries': []}
 
-        for dep in dependencies:
-            data = self.dependencies[dep]
-            payload['queries'].append({
-                'version': data['version'],
-                'package': {
-                    'name': data['name'],
-                    'ecosystem': 'Packagist',
-                }
-            }) 
-        
-        response = requests.post(
-            'https://api.osv.dev/v1/querybatch',
-            json=payload,
-        )
-        data = response.json()
+        # If not simulated data, we can just query the exact version for each dependency
+        if not self.isSimulatedLockData:
+            payload = {'queries': []}
 
-        if 'results' in data:
-            for dep, result in zip(dependencies, data['results']):
-                vulns = result.get('vulns', [])
-
-                for vuln in vulns:
-                    self.dependencies[dep]['vulnerabilities'][vuln.get('id')] = {
-                        'id': vuln.get('id')
+            for dep in dependencies:
+                data = self.dependencies[dep]
+                query = {
+                    'package': {
+                        'name': data['name'],
+                        'ecosystem': 'Packagist',
+                        'version': data['version']
                     }
+                }
 
-        dumpJsonToFile("debug/apiRequest.json", payload)
-        dumpJsonToFile("debug/apiResponse.json", data)
+                payload['queries'].append(query)
+        
+            response = requests.post(
+                'https://api.osv.dev/v1/querybatch',
+                json=payload,
+            )
+            data = response.json()
 
-        # The /querybatch endpoint doesn't return all details, so we now need to make individual requests for each CVE
+            if 'results' in data:
+                for dep, result in zip(dependencies, data['results']):
+                    vulns = result.get('vulns', [])
+
+                    for vuln in vulns:
+                        self.dependencies[dep]['vulnerabilities'][vuln.get('id')] = {
+                            'id': vuln.get('id')
+                        }
+        else:
+            # We are using simulated data, so need to get vulnerabilities for each possible version of each dependency
+            for dep in dependencies:
+                payload = {'queries': []}
+
+                for version in self.dependencies[dep].get('possibleVersions', []):
+                    data = self.dependencies[dep]
+                    query = {
+                        'package': {
+                            'name': data['name'],
+                            'ecosystem': 'Packagist',
+                            'version': version
+                        }
+                    }
+                    payload['queries'].append(query)
+                response = requests.post(
+                    'https://api.osv.dev/v1/querybatch',
+                    json=payload,
+                )
+                data = response.json()
+                if 'results' in data:
+                    for result in data['results']:
+                        vulns = result.get('vulns', [])
+                        for vuln in vulns:
+                            # Only populate the vulnerability if it's not already captured - prevents duplicates across versions
+                            if vuln.get('id') not in self.dependencies[dep]['vulnerabilities']:
+                                self.dependencies[dep]['vulnerabilities'][vuln.get('id')] = {
+                                    'id': vuln.get('id')
+                                }
+
+    def getMoreDetailsForAllKnownCVEs(self):
+        # The /querybatch endpoint doesn't return all details, so we make individual requests for each CVE
         for dep in self.dependencies.keys():
             if len(self.dependencies[dep]['vulnerabilities']) == 0: continue
 
@@ -200,6 +274,52 @@ class SoftwareCompositionAnalysis:
                 mergedData = {**existingData, **additionalData}
                 self.dependencies[dep]['vulnerabilities'][vuln] = mergedData
 
+    def getAllPossibleVersionsForSimulatedData(self):
+        if not self.isSimulatedLockData:
+            return
+        
+        # Get all versions for each package from Packagist API
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+
+            # https://packagist.org/apidoc
+            response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
+            
+            json = response.json()
+            allVersions = []
+
+            for data in json.get('packages', {}).get(dependency['name'], []):
+                version = data.get('version')
+                if version:
+                    allVersions.append(version)
+
+            self.dependencies[dep]['possibleVersions'] = self.filterVersionsByConstraint(allVersions, dependency['version'])
+
+    def filterVersionsByConstraint(self, allVersions, constraint):
+        normalisedConstraint = constraint.lstrip('vV')
+        
+        try:
+            spec = semantic_version.NpmSpec(normalisedConstraint)
+        except ValueError:
+            print(ConsoleColour.toYellow(f"Warning: Unable to parse version constraint '{constraint}'. Using all versions."))
+            return allVersions
+        
+        compatibleVersions = []
+
+        for version in allVersions:
+            try:
+                cleanVersion = version.lstrip('vV')
+
+                # Coerce version to ensure standard format
+                coercedVersion = semantic_version.Version.coerce(cleanVersion)
+                if coercedVersion in spec:
+                    compatibleVersions.append(version)
+            except ValueError:
+                print(ConsoleColour.toYellow(f"Warning: Unable to parse version '{version}' for package with constraint '{constraint}'. Skipping this version."))
+                continue
+
+        return compatibleVersions
+    
 class StaticAnalysis:
     psalmConfigPath: str
 
@@ -580,7 +700,6 @@ class SecAware:
     gitRepoRemoteUrl: str
     gitCommitHash: str
 
-
     def __init__(self, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
@@ -589,18 +708,22 @@ class SecAware:
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
         
-        print(ConsoleColour.toYellow("Preparing Git Repository"))
+        print(ConsoleColour.toYellow("Preparing Git Repository for Analysis"))
         self.gitRepoLocalPath = GitHelper.shallowClone(self.gitRepoRemoteUrl, self.gitCommitHash)
         self.gitChangedFiles = GitHelper.diffFiles(self.gitRepoLocalPath, self.gitCommitHash)
         self.codeFilesForAnalysis = self.identifySuitableFilesForAnalysis(self.gitChangedFiles)
         self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
-        print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.")
+        print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.\n")
 
         print(ConsoleColour.toYellow("Software Composition Analsysis (SCA)"))
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
         except SCAMissingDependencyFilesError:
             print(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
+        except SCAMissingDirectoryError:
+            print(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
+
+        dumpJsonToFile("debug/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
 
     def checkDotEnvFileExists(self):
         if not os.path.exists(".env"):
