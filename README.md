@@ -28,7 +28,7 @@ Create a copy of `.env.example` as `.env`, and ensure that you populate the foll
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GITHUB_TOKEN` | A [personal access token (PAT)](https://github.com/settings/personal-access-tokens/new) for a GitHub account, used to authenticate against GitHub API. |
 
-Please use the provided Docker container. SecAware is designed with specific assumptions regarding operating system functionalities and capabilities. Executing SecAware natively may lead to environment-related crashes or inconsistent analysis results.
+Please use the provided [Docker](Dockerfile) container. SecAware is designed with specific assumptions regarding operating system functionalities and capabilities. Executing SecAware natively may lead to environment-related crashes or inconsistent analysis results.
 
 ```bash
 # Build the container
