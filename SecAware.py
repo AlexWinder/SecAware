@@ -7,46 +7,15 @@ import os
 import pathlib
 import re
 import requests
-import subprocess
 import sys
 import textwrap
-import xml.etree.ElementTree as XML
 
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
+from app.analysis.StaticAnalysis import StaticAnalysis
 from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
 from app.data.OWASPContext import owaspTop10Context
 from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
-
-class StaticAnalysis:
-    analysisFindings: list
-    psalmConfigPath: str
-
-    def __init__(self, filesForAnalysis):
-        self.psalmConfigPath = "/tmp/psalm.xml"
-
-        self.buildConfigurationFile()
-        self.runAnalysis(filesForAnalysis)
-
-    def buildConfigurationFile(self):
-        if os.path.exists(self.psalmConfigPath):
-            print(ConsoleColour.toYellow(f"Psalm configuration file already exists at {self.psalmConfigPath}. Skipping configuration file creation."))
-            return
-
-        psalmConfig = XML.Element('psalm')
-        xmlTree = XML.ElementTree(psalmConfig)
-        xmlTree.write(self.psalmConfigPath, encoding='utf-8', xml_declaration=True)
-
-    def runAnalysis(self, targetDirectory):
-        result = subprocess.run([
-            "psalm",
-            "--config", self.psalmConfigPath,
-            "--taint-analysis",
-            "--output-format=json",
-            targetDirectory
-        ], capture_output=True, text=True)
-
-        self.analysisFindings = json.loads(result.stdout)
 
 class GenerativeAIAnalysis:
     findings: dict
@@ -400,6 +369,7 @@ class SecAware:
             print(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
         dumpJsonToFile("debug/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
 
+        print(ConsoleColour.toYellow("Static Analysis"))
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
         dumpJsonToFile("debug/sa.json", self.componentStaticAnalysis.analysisFindings)
 
