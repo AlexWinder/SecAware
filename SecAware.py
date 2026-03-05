@@ -204,7 +204,11 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            return json.loads(cleanedResponse)['vulnerabilities']
+            try:
+                return json.loads(cleanedResponse)['vulnerabilities']
+            except json.JSONDecodeError as e:
+                    print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                    print(responseJson)
 
     def cleanUpResponse(self, response):
         # Tidy up the response by removing any markdown code blocks
@@ -271,7 +275,12 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            return json.loads(cleanedResponse)['vulnerabilities']
+            try:
+                return json.loads(cleanedResponse)['vulnerabilities']
+            except json.JSONDecodeError as e:
+                print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                print(responseJson)
+                
 
     def assignCorrectCWEOWASPCategories(self, fileReference):
         systemPrompt = textwrap.dedent("""\
@@ -322,7 +331,11 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            return json.loads(cleanedResponse)['vulnerabilities']
+            try:
+                return json.loads(cleanedResponse)['vulnerabilities']
+            except json.JSONDecodeError as e:
+                print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                print(responseJson)
 
 def errorMessage(message):
     ConsoleColour.toRed(message)
