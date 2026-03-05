@@ -18,13 +18,23 @@ from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
 
 class GenerativeAIAnalysis:
+    directoryToScanPath: str
+    filesToScan: list
     findings: dict
     model: str
 
-    def __init__(self):
+    def __init__(self, model, directoryToScanPath, filesToScan):
+        self.directoryToScanPath = directoryToScanPath
+        self.filesToScan = filesToScan
         self.findings = {}
-        self.model = "google/gemma-3-4b"
+        self.model = model
         self.checkApiAccessible()
+
+        print(f"Starting generative AI vulnerability scan for {len(self.filesToScan)} files...")
+
+        for index, file in enumerate(self.filesToScan):
+            print(ConsoleColour.toYellow(f"Analysing file {index + 1}/{len(self.filesToScan)}: {file}"))
+            self.vulnerabilityScanForFile(file)
 
     def checkApiAccessible(self):
         response = requests.get('http://host.docker.internal:1234/v1/models')
@@ -36,21 +46,39 @@ class GenerativeAIAnalysis:
         
         errorMessage(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
 
-    def vulnerabilityScanForFile(self, filePath):
+    def vulnerabilityScanForFile(self, relativeFilePath):
+        absoluteFilePath = os.path.join(self.directoryToScanPath, relativeFilePath)
+
+        if relativeFilePath not in self.findings:
+            self.findings[relativeFilePath] = {
+                "file": relativeFilePath,
+                "vulnerabilities": []
+            }
+
         # We scan several times because AI is non-deterministic
-        for i in range(3):
-            print(f'Scanning file {filePath}, iteration {i+1}/3...')
-            self.initialVulnerabilityScan(filePath)
-        
-        jsonFileName = str(filePath).lstrip('/').replace('/', '') + ".json"
-        
-        print(f"Aggregating findings for file {filePath}...")
-        self.aggregateInitialFindings(filePath)
+        scanRange = 1
+        for i in range(scanRange):
+            print(f'Scanning file {relativeFilePath}, iteration {i+1}/{scanRange}...')
+            findings = self.initialVulnerabilityScan(absoluteFilePath)
 
-        print(f"Assigning correct CWE and OWASP categories for file {filePath}...")
-        self.assignCorrectCWEOWASPCategories(filePath)
+            self.findings[relativeFilePath]["vulnerabilities"].append(findings)
+        
+        print(f"Aggregating findings for file {relativeFilePath}...")
+        aggregated = self.aggregateInitialFindings(
+            fileReference=relativeFilePath, 
+            filePath=absoluteFilePath
+        )
+        self.findings[relativeFilePath]["vulnerabilities"] = aggregated
 
-        dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
+        print(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}...")
+        corrected = self.assignCorrectCWEOWASPCategories(
+            fileReference=relativeFilePath
+        )
+        self.findings[relativeFilePath]["vulnerabilities"] = corrected
+
+        # print(self.findings)
+
+        # dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
     
     def vulnerabilityJsonSchema(self):
         return textwrap.dedent("""\
@@ -132,6 +160,7 @@ class GenerativeAIAnalysis:
             Output ONLY valid JSON.
             Do NOT include any code fences, markdown, delimiters, formatting or extra text.
             Output MUST be parseable directly as JSON without any additional processing.
+            JSON must be fully valid, with no trailing commas and no unescaped characters.
         """)
 
     def initialVulnerabilityScan(self, filePath):
@@ -177,19 +206,14 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            if filePath not in self.findings:
-                self.findings[filePath] = {
-                    "file": filePath,
-                    "vulnerabilities": []
-                }
-            self.findings[filePath]["vulnerabilities"].append(json.loads(cleanedResponse)['vulnerabilities'])
+            return json.loads(cleanedResponse)['vulnerabilities']
 
     def cleanUpResponse(self, response):
         # Tidy up the response by removing any markdown code blocks
         cleanedResponse = re.sub(r"^```.*?\n|\n```$", "", response.strip(), flags=re.DOTALL)
         return cleanedResponse
 
-    def aggregateInitialFindings(self, filePath):
+    def aggregateInitialFindings(self, fileReference, filePath):
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity data processor, specialising in vulnerability management.
             Your sole objective is to take a list of existing vulnerability findings and consolidate them into a unique, deduplicated JSON list.
@@ -213,7 +237,7 @@ class GenerativeAIAnalysis:
             JSON findings:
                                      
             ```json
-            {self.findings}
+            {self.findings[fileReference]}
             ```
                                      
             For reference, the original code file:
@@ -249,14 +273,9 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            if filePath not in self.findings:
-                self.findings[filePath] = {
-                    "file": filePath,
-                    "vulnerabilities": []
-                }
-            self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)['vulnerabilities']
+            return json.loads(cleanedResponse)['vulnerabilities']
 
-    def assignCorrectCWEOWASPCategories(self, filePath):
+    def assignCorrectCWEOWASPCategories(self, fileReference):
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity specialist, specialising in vulnerability classification and management.
             Your primary focus is to ensure that any identified vulnerabilities are correctly mapped to their appropriate CWE and OWASP categories.
@@ -288,7 +307,7 @@ class GenerativeAIAnalysis:
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(self.findings)
+                    "content": json.dumps(self.findings[fileReference])
                 }
             ]
         }
@@ -305,13 +324,7 @@ class GenerativeAIAnalysis:
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
 
-            if filePath not in self.findings:
-                self.findings[filePath] = {
-                    "file": filePath,
-                    "vulnerabilities": []
-                }
-            
-            self.findings[filePath]["vulnerabilities"] = json.loads(cleanedResponse)[filePath]['vulnerabilities']
+            return json.loads(cleanedResponse)['vulnerabilities']
 
 def errorMessage(message):
     ConsoleColour.toRed(message)
@@ -329,6 +342,7 @@ def dumpJsonToFile(filename, data):
         json.dump(data, f, indent=2)
 
 class SecAware:
+    aiModel: str
     aiRestApiBaseUrl: str
     codeFilesForAnalysis: list
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
@@ -339,7 +353,8 @@ class SecAware:
     gitRepoRemoteUrl: str
     gitCommitHash: str
 
-    def __init__(self, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
+    def __init__(self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
+        self.aiModel = aiModel
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
@@ -372,6 +387,14 @@ class SecAware:
         print(ConsoleColour.toYellow("Static Analysis"))
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
         dumpJsonToFile("debug/sa.json", self.componentStaticAnalysis.analysisFindings)
+
+        print(ConsoleColour.toYellow("Generative AI Analysis"))
+        self.componentGenerativeAIAnalysis = GenerativeAIAnalysis(
+            directoryToScanPath=self.gitRepoLocalPath,
+            filesToScan=self.codeFilesForAnalysis,
+            model=self.aiModel,
+        )
+        dumpJsonToFile("debug/ai.json", self.componentGenerativeAIAnalysis.findings)
 
     def checkDotEnvFileExists(self):
         if not os.path.exists(".env"):
@@ -412,6 +435,7 @@ if __name__ == '__main__':
         formatter_class=ArgparseCustomFormatter
     )
     parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API.')
+    parser.add_argument('--ai-model', type=str, default='google/gemma-3-4b', help='The generative AI model to use.')
     # Default values are a known vulnerability
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
@@ -420,6 +444,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     secAware = SecAware(
+        aiModel=args.ai_model,
         aiRestApiBaseUrl=args.ai_rest_base_url,
         gitRepoRemoteUrl=args.git_repo_url,
         gitCommitHash=args.git_commit_hash
