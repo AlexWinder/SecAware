@@ -56,7 +56,7 @@ class GenerativeAIAnalysis:
             }
 
         # We scan several times because AI is non-deterministic
-        scanRange = 1
+        scanRange = 3
         for i in range(scanRange):
             print(f'Scanning file {relativeFilePath}, iteration {i+1}/{scanRange}...')
             findings = self.initialVulnerabilityScan(absoluteFilePath)
@@ -75,10 +75,6 @@ class GenerativeAIAnalysis:
             fileReference=relativeFilePath
         )
         self.findings[relativeFilePath]["vulnerabilities"] = corrected
-
-        # print(self.findings)
-
-        # dumpJsonToFile(f"debug/{jsonFileName}", self.findings)
     
     def vulnerabilityJsonSchema(self):
         return textwrap.dedent("""\
@@ -440,7 +436,7 @@ if __name__ == '__main__':
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
-
+    
     args = parser.parse_args()
 
     secAware = SecAware(
