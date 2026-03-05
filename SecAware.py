@@ -375,7 +375,7 @@ class SecAware:
         self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
         print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.\n")
 
-        print(ConsoleColour.toYellow("Software Composition Analysis (SCA)"))
+        print(ConsoleColour.toBlue("Software Composition Analysis (SCA)"))
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
         except SCAMissingDependencyFilesError:
@@ -384,11 +384,11 @@ class SecAware:
             print(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
         dumpJsonToFile("debug/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
 
-        print(ConsoleColour.toYellow("Static Analysis"))
+        print(ConsoleColour.toBlue("Static Analysis"))
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
         dumpJsonToFile("debug/sa.json", self.componentStaticAnalysis.analysisFindings)
 
-        print(ConsoleColour.toYellow("Generative AI Analysis"))
+        print(ConsoleColour.toBlue("Generative AI Analysis"))
         self.componentGenerativeAIAnalysis = GenerativeAIAnalysis(
             directoryToScanPath=self.gitRepoLocalPath,
             filesToScan=self.codeFilesForAnalysis,
