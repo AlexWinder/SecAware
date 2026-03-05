@@ -7,6 +7,7 @@ import os
 import pathlib
 import sys
 import textwrap
+import time
 
 from app.analysis.GenerativeAIAnalysis import GenerativeAIAnalysis, GAIAModelNotAvailableError
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
@@ -15,10 +16,6 @@ from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
 from app.data.OWASPContext import owaspTop10Context
 from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
-
-def errorMessage(message):
-    ConsoleColour.toRed(message)
-    sys.exit(1)
 
 def relativeToScriptAbsolutePath(relativePath):
     return os.path.join(os.path.dirname(__file__), relativePath)
@@ -43,12 +40,14 @@ class SecAware:
     gitRepoLocalPath: str
     gitRepoRemoteUrl: str
     gitCommitHash: str
+    startTime: str
 
     def __init__(self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
         self.aiModel = aiModel
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
+        self.startTime = time.perf_counter()
 
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
@@ -92,16 +91,22 @@ class SecAware:
             print(ConsoleColour.toRed(str(e)))
             print(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
 
+        self.printConsoleSummary()
+
+    def errorMessage(self, message):
+        ConsoleColour.toRed(message)
+        sys.exit(1)
+
     def checkDotEnvFileExists(self):
         if not os.path.exists(".env"):
-            errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
+            self.errorMessage(".env file not found. Please create a .env file based on the .env.example file and add the required environment variables.")
 
     def loadEnvironmentVariables(self):
         dotenv.load_dotenv()
         existingVars = ["GITHUB_TOKEN"]
         for var in existingVars:
             if var not in os.environ:
-                errorMessage(f"{var} environment variable not set within .env file")
+                self.errorMessage(f"{var} environment variable not set within .env file")
 
     def formatBaseUrl(self, url):
         return url.rstrip('/')
@@ -117,6 +122,54 @@ class SecAware:
                 if file in ['composer.json', 'composer.lock']:
                     dependencyFiles.append(os.path.join(root, file))
         return dependencyFiles
+
+    def printConsoleSummary(self):
+        print("\n")
+
+        print(ConsoleColour.toGreen("Summary of Findings"))
+        print('├── Git Repository: ' + ConsoleColour.toBlue(self.gitRepoRemoteUrl))
+        print('├── Git Commit: ' + ConsoleColour.toBlue(self.gitCommitHash))
+        print('├── Total Suitable Files Changed: ' + ConsoleColour.toBlue(str(len(self.codeFilesForAnalysis))))
+        print("└── Analysis Time: " + ConsoleColour.toBlue(f"{time.perf_counter() - self.startTime:.2f} seconds"))
+        print("\n")
+
+        print(ConsoleColour.toYellow('Software Composition Analysis (SCA)'))
+        if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
+            print('├── Total Dependencies Detected: ' + ConsoleColour.toBlue(str(len(self.componentSoftwareCompositionAnalysis.dependencies))))
+            scaVulnerabilityCount = 0
+            for depInfo in self.componentSoftwareCompositionAnalysis.dependencies.values():
+                vulnerabilities = depInfo.get('vulnerabilities', {})
+                scaVulnerabilityCount += len(vulnerabilities)
+
+            simulated = self.componentSoftwareCompositionAnalysis.isSimulatedLockData
+            treeSymbol = "└── "
+            if simulated:
+                treeSymbol = "├── "
+            
+            print(f"{treeSymbol}Total Dependency CVEs Detected: " + ConsoleColour.toBlue(str(scaVulnerabilityCount)))
+
+            if simulated:
+                print("└── " + ConsoleColour.toRed('Notice! Simulated lock data used. CVE results are likely inaccurate.'))
+        else:
+            print(ConsoleColour.toRed("└── SCA not performed."))
+        print("\n")
+
+        print(ConsoleColour.toYellow('Static Analysis'))
+        if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
+            print('└── Total Static Analysis Findings Detected: ' + ConsoleColour.toBlue(str(len(self.componentStaticAnalysis.analysisFindings))))
+        else:
+            print(ConsoleColour.toRed("└── Static Analysis not performed."))
+        print("\n")
+
+        print(ConsoleColour.toYellow('Generative AI Analysis'))
+        if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            aiVulnerabilityCount = 0
+            for finding in self.componentGenerativeAIAnalysis.findings.values():
+                aiVulnerabilityCount += len(finding.get('vulnerabilities', []))
+            
+            print('└── Total AI Analysis Vulnerabilities Detected: ' + ConsoleColour.toBlue(str(aiVulnerabilityCount)))
+        else:
+            print(ConsoleColour.toRed("└── Generative AI Analysis not performed."))
 
 if __name__ == '__main__':
 
