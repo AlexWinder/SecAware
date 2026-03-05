@@ -18,12 +18,14 @@ from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
 
 class GenerativeAIAnalysis:
+    baseUrl: str
     directoryToScanPath: str
     filesToScan: list
     findings: dict
     model: str
 
-    def __init__(self, model, directoryToScanPath, filesToScan):
+    def __init__(self, baseUrl, model, directoryToScanPath, filesToScan):
+        self.baseUrl = baseUrl
         self.directoryToScanPath = directoryToScanPath
         self.filesToScan = filesToScan
         self.findings = {}
@@ -37,7 +39,7 @@ class GenerativeAIAnalysis:
             self.vulnerabilityScanForFile(file)
 
     def checkApiAccessible(self):
-        response = requests.get('http://host.docker.internal:1234/v1/models')
+        response = requests.get(f"{self.baseUrl}/v1/models")
 
         for model in response.json().get('data', []):
             if model.get('id') == self.model:
@@ -191,7 +193,7 @@ class GenerativeAIAnalysis:
         }
 
         response = requests.post(
-            'http://host.docker.internal:1234/v1/chat/completions', 
+            f"{self.baseUrl}/v1/chat/completions", 
             headers={'Content-Type': 'application/json'},
             json=payload
         )
@@ -258,7 +260,7 @@ class GenerativeAIAnalysis:
         }
 
         response = requests.post(
-            'http://host.docker.internal:1234/v1/chat/completions', 
+            f"{self.baseUrl}/v1/chat/completions",
             headers={'Content-Type': 'application/json'},
             json=payload
         )
@@ -309,7 +311,7 @@ class GenerativeAIAnalysis:
         }
 
         response = requests.post(
-            'http://host.docker.internal:1234/v1/chat/completions', 
+            f"{self.baseUrl}/v1/chat/completions",
             headers={'Content-Type': 'application/json'},
             json=payload
         )
@@ -341,6 +343,7 @@ class SecAware:
     aiModel: str
     aiRestApiBaseUrl: str
     codeFilesForAnalysis: list
+    componentGenerativeAIAnalysis: GenerativeAIAnalysis
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
     componentStaticAnalysis: StaticAnalysis
     dependencyManagementFiles: list
@@ -386,6 +389,7 @@ class SecAware:
 
         print(ConsoleColour.toBlue("Generative AI Analysis"))
         self.componentGenerativeAIAnalysis = GenerativeAIAnalysis(
+            baseUrl=self.aiRestApiBaseUrl,
             directoryToScanPath=self.gitRepoLocalPath,
             filesToScan=self.codeFilesForAnalysis,
             model=self.aiModel,
