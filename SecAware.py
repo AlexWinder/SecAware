@@ -209,6 +209,8 @@ class SecAware:
         print('├── Git Repository: ' + ConsoleColour.toBlue(self.gitRepoRemoteUrl))
         print('├── Git Commit: ' + ConsoleColour.toBlue(self.gitCommitHash))
         print('├── Total Suitable Files Changed: ' + ConsoleColour.toBlue(str(len(self.codeFilesForAnalysis))))
+        print('├── AI Model: ' + ConsoleColour.toBlue(self.aiModel))
+        print('├── AI REST API Base URL: ' + ConsoleColour.toBlue(self.aiRestApiBaseUrl))
         print("└── Analysis Time: " + ConsoleColour.toBlue(f"{time.perf_counter() - self.startTime:.2f} seconds"))
         print("\n")
 
