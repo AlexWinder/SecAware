@@ -108,7 +108,7 @@ class SecAware:
 
     def loadEnvironmentVariables(self):
         dotenv.load_dotenv()
-        existingVars = ["GITHUB_TOKEN"]
+        existingVars = ["AI_API_BEARER_TOKEN"]
         for var in existingVars:
             if var not in os.environ:
                 self.errorMessage(f"{var} environment variable not set within .env file")
