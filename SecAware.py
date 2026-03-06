@@ -262,7 +262,7 @@ if __name__ == '__main__':
         description=description,
         formatter_class=ArgparseCustomFormatter
     )
-    parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API.')
+    parser.add_argument('--ai-rest-base-url', type=str, default='http://host.docker.internal:1234', help='The base URL for the generative AI REST API. For example, if using LM Studio locally, this might be http://host.docker.internal:1234, if using the Hugging Face proxy this would be https://router.huggingface.co. Any endpoint that is compatible with the OpenAI OpenAPI schema (https://github.com/openai/openai-openapi).')
     parser.add_argument('--ai-model', type=str, default='google/gemma-3-4b', help='The generative AI model to use.')
     # Default values are a known vulnerability
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
