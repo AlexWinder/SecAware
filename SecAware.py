@@ -32,6 +32,7 @@ class SecAware:
     aiModel: str
     aiRestApiBaseUrl: str
     codeFilesForAnalysis: list
+    combinedVulnerabilityFindings: dict
     componentGenerativeAIAnalysis: GenerativeAIAnalysis
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
     componentStaticAnalysis: StaticAnalysis
@@ -91,6 +92,8 @@ class SecAware:
             print(ConsoleColour.toRed(str(e)))
             print(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
 
+        self.combinedVulnerabilityFindings = self.combineRelevantFindings()
+
         self.printConsoleSummary()
 
     def errorMessage(self, message):
@@ -122,6 +125,80 @@ class SecAware:
                 if file in ['composer.json', 'composer.lock']:
                     dependencyFiles.append(os.path.join(root, file))
         return dependencyFiles
+
+    def stripBackFilePath(self, stripPath, filePath):
+        if filePath.startswith(stripPath):
+            return filePath[len(stripPath):].lstrip('/\\')
+        return filePath
+
+    def combineRelevantFindings(self):
+        aggregatedFindings = {}
+
+        for finding in self.componentStaticAnalysis.analysisFindings:
+            filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
+
+            if filePath not in aggregatedFindings:
+                aggregatedFindings[filePath] = {
+                    'staticAnalysis': [],
+                    'generativeAIAnalysis': []
+                }
+
+            findingEntry = {
+                'filePath': filePath,
+                'type': finding.get('type'),
+                'message': finding.get('message'),
+                'lineFrom': finding.get('line_from'),
+                'lineTo': finding.get('line_to'),
+                'selectedText': finding.get('selected_text'),
+            }
+            
+            trace = []
+
+            for taintTrace in finding.get('taint_trace', []):
+                trace.append({
+                    'filePath': self.stripBackFilePath(self.gitRepoLocalPath, taintTrace.get('file_path', '')),
+                    'label': taintTrace.get('label'),
+                    'snippet': taintTrace.get('snippet'),
+                    'lineFrom': taintTrace.get('line_from'),
+                    'lineTo': taintTrace.get('line_to'),
+                })
+            
+            findingEntry['trace'] = trace
+            
+            aggregatedFindings[filePath]['staticAnalysis'].append(findingEntry)
+        
+        for filePath, finding in self.componentGenerativeAIAnalysis.findings.items():
+            vulnerabilities = finding.get('vulnerabilities', [])
+
+            # Ignore missing vulnerabilities
+            if not vulnerabilities:
+                continue
+
+            if filePath not in aggregatedFindings:
+                aggregatedFindings[filePath] = {
+                    'staticAnalysis': [],
+                    'generativeAIAnalysis': []
+                }
+
+            for vulnerability in finding.get('vulnerabilities', []):
+                # Combine all of the confidence scores into an average
+                if 'confidences' in vulnerability:
+                    confidenceScores = vulnerability['confidences']
+                    averageConfidence = sum(confidenceScores.values()) / len(confidenceScores)
+
+                findingEntry = {
+                    'description': vulnerability.get('description'),
+                    'line': vulnerability.get('line'),
+                    'justification': vulnerability.get('justification'),
+                    'fix': vulnerability.get('fix'),
+                    'owaspCategories': vulnerability.get('owasp_categories', []),
+                    'cweIds': vulnerability.get('cwe_ids', []),
+                    'confidence': averageConfidence if 'confidences' in vulnerability else 0
+                }
+
+                aggregatedFindings[filePath]['generativeAIAnalysis'].append(findingEntry)
+
+        return aggregatedFindings
 
     def printConsoleSummary(self):
         print("\n")
