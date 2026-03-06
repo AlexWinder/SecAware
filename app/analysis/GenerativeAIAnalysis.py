@@ -30,6 +30,16 @@ class GenerativeAIAnalysis:
             print(ConsoleColour.toYellow(f"Analysing file {index + 1}/{len(self.filesToScan)}: {file}"))
             self.vulnerabilityScanForFile(file)
 
+    def buildRequestHeaders(self):
+        headers = {'Content-Type': 'application/json'}
+
+        token = os.environ.get('AI_API_BEARER_TOKEN')
+
+        if token and token.strip():
+            headers['Authorization'] = f"Bearer {token.strip()}"
+
+        return headers
+
     def checkApiAccessible(self):
         response = requests.get(f"{self.baseUrl}/v1/models")
 
@@ -56,7 +66,7 @@ class GenerativeAIAnalysis:
             findings = self.initialVulnerabilityScan(absoluteFilePath)
 
             self.findings[relativeFilePath]["vulnerabilities"].append(findings)
-        
+
         print(f"Aggregating findings for file {relativeFilePath}...")
         aggregated = self.aggregateInitialFindings(
             fileReference=relativeFilePath, 
@@ -186,8 +196,8 @@ class GenerativeAIAnalysis:
 
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions", 
-            headers={'Content-Type': 'application/json'},
-            json=payload
+            headers=self.buildRequestHeaders(),
+            json=payload,
         )
 
         responseJson = response.json()
@@ -257,7 +267,7 @@ class GenerativeAIAnalysis:
 
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
-            headers={'Content-Type': 'application/json'},
+            headers=self.buildRequestHeaders(),
             json=payload
         )
 
@@ -313,7 +323,7 @@ class GenerativeAIAnalysis:
 
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
-            headers={'Content-Type': 'application/json'},
+            headers=self.buildRequestHeaders(),
             json=payload
         )
 
