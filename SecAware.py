@@ -18,7 +18,9 @@ from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
 
 def relativeToScriptAbsolutePath(relativePath):
-    return os.path.join(os.path.dirname(__file__), relativePath)
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), relativePath)
+    )
 
 def dumpJson(data):
     print(json.dumps(data, indent=2))
