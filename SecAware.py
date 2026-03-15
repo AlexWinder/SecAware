@@ -321,8 +321,7 @@ class SecAware:
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
-                aiVulnerabilityCount += len(finding.get('vulnerabilities', []))
-            
+                aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
             print('└── Total AI Analysis Vulnerabilities Detected: ' + ConsoleColour.toBlue(str(aiVulnerabilityCount)))
         else:
             print(ConsoleColour.toRed("└── Generative AI Analysis not performed."))
@@ -345,7 +344,7 @@ if __name__ == '__main__':
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
-    
+
     args = parser.parse_args()
 
     secAware = SecAware(
