@@ -5,6 +5,7 @@ import dotenv
 import json
 import os
 import pathlib
+import requests
 import sys
 import textwrap
 import time
@@ -14,6 +15,7 @@ from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis
 from app.analysis.StaticAnalysis import StaticAnalysis
 from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
 from app.data.OWASPContext import owaspTop10Context
+from app.utils.AIRestAPI import AIRestAPI
 from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
 
@@ -26,7 +28,8 @@ def dumpJson(data):
     print(json.dumps(data, indent=2))
 
 def dumpJsonToFile(filename, data):
-    filename = relativeToScriptAbsolutePath(filename)
+    filename = pathlib.Path(relativeToScriptAbsolutePath(filename))
+    filename.parent.mkdir(parents=True, exist_ok=True)
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
@@ -43,6 +46,7 @@ class SecAware:
     gitRepoLocalPath: str
     gitRepoRemoteUrl: str
     gitCommitHash: str
+    reportPath: str
     startTime: str
 
     def __init__(self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
@@ -55,6 +59,8 @@ class SecAware:
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
         self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
+
+        self.reportPath = relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
 
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
@@ -71,7 +77,7 @@ class SecAware:
         print(ConsoleColour.toBlue("Software Composition Analysis (SCA)"))
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
-            dumpJsonToFile("debug/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
+            dumpJsonToFile(f"{self.reportPath}/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
         except SCAMissingDependencyFilesError:
             print(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
         except SCAMissingDirectoryError:
@@ -79,7 +85,7 @@ class SecAware:
 
         print(ConsoleColour.toBlue("Static Analysis"))
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
-        dumpJsonToFile("debug/sa.json", self.componentStaticAnalysis.analysisFindings)
+        dumpJsonToFile(f"{self.reportPath}/sa.json", self.componentStaticAnalysis.analysisFindings)
 
         print(ConsoleColour.toBlue("Generative AI Analysis"))
         try:
@@ -89,12 +95,14 @@ class SecAware:
                 filesToScan=self.codeFilesForAnalysis,
                 model=self.aiModel,
             )
-            dumpJsonToFile("debug/ai.json", self.componentGenerativeAIAnalysis.findings)
+            dumpJsonToFile(f"{self.reportPath}/ai.json", self.componentGenerativeAIAnalysis.findings)
         except GAIAModelNotAvailableError as e:
             print(ConsoleColour.toRed(str(e)))
             print(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
 
         self.combinedVulnerabilityFindings = self.combineRelevantFindings()
+        dumpJsonToFile(f"{self.reportPath}/combined_findings.json", self.combinedVulnerabilityFindings)
+        self.produceContextualisedReport()
 
         self.printConsoleSummary()
 
@@ -201,6 +209,73 @@ class SecAware:
                 aggregatedFindings[filePath]['generativeAIAnalysis'].append(findingEntry)
 
         return aggregatedFindings
+    
+    def produceContextualisedReport(self):
+        systemPrompt = textwrap.dedent("""\
+            You are a cybersecurity analyst assistant, specialised in vulnerability assessment.
+            Your task is to produce a contextualised vulnerability report for a software project based on initial vulnerability findings from both static analysis and generative AI analysis.
+            
+            You may find conflicting or duplicated findings between the two sources. Your task is to synthesise the information and provide clear but concise insights on the findings.
+                                       
+            You will be presented with the contents of the files, along with the findings, and you should use this information to produce an accurate report.
+            
+            The report should be produced in markdown and should be contain the following headings, with the following contents:
+            - SUMMARY = Brief summary of the overall security posture of the project based on the findings.
+            - FINDINGS = Findings for each file should be provided with the following details:
+                - RISK SCORE = A risk score for the vulnerability
+                - LOCATION = The vulnerable code snippet.
+                - DESCRIPTION = A brief description of the vulnerability, including the type of vulnerability.
+                - CATEGORY = An appropriate category against OWASP Top 10 and/or CWE, where possible.
+                - JUSTIFICATION = A justification of why the code is vulnerable, based on the evidence from the findings.
+                - REMEDIATION = Suggested fix(es) or remediation(s) for the vulnerability.
+            - GLOSSARY = A glossary of any technical terms should be provided, with clear and concise definitions.
+                                       
+            When allocating to OWASP/CWE categories, ensure to give a URL directly to the relevant category page on OWASP. Ensure that any CWE ID used is accurate and corresponds to the OWASP category. The below list of OWASP and CWE IDs are authoritative. These should be use as the source of truth. If the findings are categorised differently against this list then you should classify it as "Uncategorised":
+        """)
+
+        for item in owaspTop10Context:
+            systemPrompt += f"- {item['id']} {item['name']} ({item['url']}):\n"
+
+            for cwe in item.get('cwe_ids', []):
+                systemPrompt += f"  - {cwe['id']} {cwe['name']}\n"
+
+        userPrompt = ''
+
+        for filePath in self.combinedVulnerabilityFindings:
+            findings = self.combinedVulnerabilityFindings[filePath]
+
+            userPrompt += textwrap.dedent(f"""\
+                ==========
+                File Path: {filePath}
+
+                File Contents:
+                ```php
+                {pathlib.Path(os.path.join(self.gitRepoLocalPath, filePath)).read_text(encoding='utf-8')}
+                ```
+
+                Static Analysis Findings:
+                ```json
+                {json.dumps(findings.get('staticAnalysis', []))}
+                ```
+
+                Generative AI Analysis Findings:
+                ```json
+                {json.dumps(findings.get('generativeAIAnalysis', []))}
+                ```
+                ==========                      
+            """)
+
+        response = requests.post(
+            f"{self.aiRestApiBaseUrl}/v1/chat/completions", 
+            headers=AIRestAPI.buildRequestHeaders(),
+            json=AIRestAPI.buildConversationPayload(self.aiModel, systemPrompt, userPrompt)
+        )
+
+        responseJson = response.json()
+        if 'choices' in responseJson:
+            aiMessageContent = responseJson['choices'][0]['message']['content']
+
+            print(aiMessageContent)
 
     def printConsoleSummary(self):
         print("\n")
