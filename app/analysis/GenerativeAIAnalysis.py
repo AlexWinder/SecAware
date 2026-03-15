@@ -7,6 +7,7 @@ import requests
 import textwrap
 
 from app.data.OWASPContext import owaspTop10Context
+from app.utils.AIRestAPI import AIRestAPI
 from app.utils.ConsoleColour import ConsoleColour
 
 class GenerativeAIAnalysis:
@@ -29,16 +30,6 @@ class GenerativeAIAnalysis:
         for index, file in enumerate(self.filesToScan):
             print(ConsoleColour.toYellow(f"Analysing file {index + 1}/{len(self.filesToScan)}: {file}"))
             self.vulnerabilityScanForFile(file)
-
-    def buildRequestHeaders(self):
-        headers = {'Content-Type': 'application/json'}
-
-        token = os.environ.get('AI_API_BEARER_TOKEN')
-
-        if token and token.strip():
-            headers['Authorization'] = f"Bearer {token.strip()}"
-
-        return headers
 
     def checkApiAccessible(self):
         response = requests.get(f"{self.baseUrl}/v1/models")
@@ -180,24 +171,10 @@ class GenerativeAIAnalysis:
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
         
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": systemPrompt
-                },
-                {
-                    "role": "user",
-                    "content": fileContent
-                }
-            ]
-        }
-
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions", 
-            headers=self.buildRequestHeaders(),
-            json=payload,
+            headers=AIRestAPI.buildRequestHeaders(),
+            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, fileContent),
         )
 
         responseJson = response.json()
@@ -251,24 +228,10 @@ class GenerativeAIAnalysis:
             ```
         """)
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": systemPrompt
-                },
-                {
-                    "role": "user",
-                    "content": userPrompt
-                }
-            ]
-        }
-
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
-            headers=self.buildRequestHeaders(),
-            json=payload
+            headers=AIRestAPI.buildRequestHeaders(),
+            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, userPrompt)
         )
 
         responseJson = response.json()
@@ -307,24 +270,10 @@ class GenerativeAIAnalysis:
 
         systemPrompt += self.explicitJsonOutputInstruction()
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": systemPrompt
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(self.findings[fileReference])
-                }
-            ]
-        }
-
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
-            headers=self.buildRequestHeaders(),
-            json=payload
+            headers=AIRestAPI.buildRequestHeaders(),
+            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, json.dumps(self.findings[fileReference]))
         )
 
         responseJson = response.json()
