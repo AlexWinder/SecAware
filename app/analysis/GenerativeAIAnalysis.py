@@ -189,12 +189,7 @@ class GenerativeAIAnalysis:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
-
-            try:
-                return json.loads(cleanedResponse)['vulnerabilities']
-            except json.JSONDecodeError as e:
-                    self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                    self.logger.debug(responseJson)
+            return self.getVulnerabilitiesFromJsonResponse(cleanedResponse)
 
     def cleanUpResponse(self, response):
         # Tidy up the response by removing any markdown code blocks
@@ -252,12 +247,7 @@ class GenerativeAIAnalysis:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
-
-            try:
-                return json.loads(cleanedResponse)['vulnerabilities']
-            except json.JSONDecodeError as e:
-                self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                self.logger.debug(responseJson)
+            return self.getVulnerabilitiesFromJsonResponse(cleanedResponse)
 
     def assignCorrectCWEOWASPCategories(self, fileReference):
         systemPrompt = textwrap.dedent("""\
@@ -297,12 +287,21 @@ class GenerativeAIAnalysis:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
             cleanedResponse = self.cleanUpResponse(aiMessageContent)
+            return self.getVulnerabilitiesFromJsonResponse(cleanedResponse)
+    
+    def getVulnerabilitiesFromJsonResponse(self, jsonResponse):
+        try:
+            jsonData = json.loads(jsonResponse)
 
-            try:
-                return json.loads(cleanedResponse)['vulnerabilities']
-            except json.JSONDecodeError as e:
-                self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                self.logger.debug(responseJson)
+            if isinstance(jsonData, dict) and 'vulnerabilities' in jsonData:
+                return jsonData['vulnerabilities']
+            
+            self.logger.critical(ConsoleColour.toRed("JSON response does not contain 'vulnerabilities' key or is not a valid JSON object."))
+            self.logger.debug(jsonResponse)
+        except json.JSONDecodeError as e:
+            self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+            self.logger.debug(jsonResponse)
+            return []
 
 class GAIAModelNotAvailableError(Exception):
     pass
