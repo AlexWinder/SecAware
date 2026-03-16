@@ -57,7 +57,8 @@ class GenerativeAIAnalysis:
             self.logger.info(f'Scanning {relativeFilePath} (iteration {i+1}/{scanRange}).')
             findings = self.initialVulnerabilityScan(absoluteFilePath)
 
-            self.findings[relativeFilePath]["vulnerabilities"].append(findings)
+            for finding in findings:
+                self.findings[relativeFilePath]["vulnerabilities"].append(finding)
 
         self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
         aggregated = self.aggregateInitialFindings(
@@ -72,109 +73,36 @@ class GenerativeAIAnalysis:
         )
         self.findings[relativeFilePath]["vulnerabilities"] = corrected
     
-    def vulnerabilityJsonSchema(self):
-        return textwrap.dedent("""\
-            When you return results, this should be presented as a JSON object, which uses the following OpenAPI schema:
-            
-            ```yaml
-            type: object
-            properties:
-                vulnerabilities:
-                    type: array
-                    items:
-                        type: object
-                        properties:
-                        description:
-                            type: string
-                            description: A brief description of the vulnerability identified in the code.
-                        owasp_categories:
-                            type: array
-                            nullable: true
-                            description: A mapping to one of the OWASP Top 10 categories, if applicable. If the vulnerability does not fit into any OWASP category, this should be null.
-                            items:
-                                type: string
-                                description: The OWASP Top 10 category, e.g. "A05:2025 - Injection".
-                        cwe_ids:
-                            type: array
-                            nullable: true
-                            description: A mapping to one or more CWE IDs, if applicable. If the vulnerability does not fit into any CWE ID, this should be null.
-                            items:
-                                type: string
-                                description: The CWE ID.
-                        line:
-                            type: string
-                            description: The particular line that contains the suspected vulnerability, with the vulnerable portion highlighted.
-                        justification:
-                            type: string
-                            description: A concise but clear justification for why the identified line is vulnerable.
-                        fix:
-                            type: string
-                            nullable: true
-                            description: Any fix recommended to resolve the identified vulnerability.
-                        confidences:
-                            type: object
-                            properties:
-                                description:
-                                    type: integer
-                                    max: 10
-                                    min: 0
-                                    description: A confidence score of the defined description. 10 = complete confidence. 0 = no confidence.
-                                owasp_categories:
-                                    type: integer
-                                    max: 10
-                                    min: 0
-                                    description: A confidence score of the defined OWASP categories. 10 = complete confidence. 0 = no confidence.
-                                cwe_ids:
-                                    type: integer
-                                    max: 10
-                                    min: 0
-                                    description: A confidence score of the defined CWE IDs. 10 = complete confidence. 0 = no confidence.
-                                line:
-                                    type: integer
-                                    max: 10
-                                    min: 0
-                                    description: A confidence score of the identified line. 10 = complete confidence. 0 = no confidence.
-                                overall:
-                                    type: integer
-                                    max: 10
-                                    min: 0
-                                    description: A confidence score of the overall vulnerability finding. 10 = complete confidence. 0 = no confidence.
-                        required:
-                        - description
-                        - line
-                        - justification
-                        - confidences
-            ```
-        """)
-    
-    def explicitJsonOutputInstruction(self):
-        return textwrap.dedent("""\
-            Output ONLY valid JSON.
-            Do NOT include any code fences, markdown, delimiters, formatting or extra text.
-            Output MUST be parseable directly as JSON without any additional processing.
-            JSON must be fully valid, with no trailing commas and no unescaped characters.
-        """)
-
     def initialVulnerabilityScan(self, filePath):
         self.logger.debug(f"Initial vulnerability scan for {filePath}.")
 
         systemPrompt = textwrap.dedent("""\
-            You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
-            You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
-            
-            When analysing code for vulnerabilities, respond **only with the vulnerabilities, explanations, and recommendations/suggested fixes**. 
-            Do not include greetings, filler text, disclaimers, or any generic commentary. Focus solely on the code provided.
+            You are a cybersecurity code reviewer focused on PHP applications.
                                        
-            Consider the OWASP Top 10 vulnerabilities as part of your analysis. The OWASP Top 10 vulnerabilities include:
+            Analyse the provided code for vulnerabilities and output the findings strictly following the JSON schema provided in the request's response_format.
+            
+            Schema guidelines:
+            - Use null for any optional values if not applicable.
+            - The "line" field must contain the exact code snippet from the source code.
+            - Do not output line numbers or offsets.
+            - Confidence scores should be based on the evidence of their respective category. Confidence scores allow a human reviewer to understand how certain you are about the accuracy of your findings.
+               
+            Explicit guidelines:
+            - Only report vulnerabilities directly supported by the provided code.
+            - Do not invent lines, functions, SQL queries, or behaviour not present in the code.
+            - If there is insufficient evidence, return an empty vulnerabilities array.
+            - Strongly prefer no findings over a speculative finding.
+            - Describe findings in plain English.
+            - Map each vulnerability to applicable OWASP Top 10 categories if relevant and possible.
+            - Preserve all indentation and characters, without breaking JSON formatting rules.
+            
+            Consider these OWASP Top 10 categories where applicable:
         """) + "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
-
-        systemPrompt += self.vulnerabilityJsonSchema()
-        systemPrompt += self.explicitJsonOutputInstruction()
 
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
 
-        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, fileContent)
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, fileContent)
         self.logger.debug(payload)
         
         response = requests.post(
@@ -201,19 +129,29 @@ class GenerativeAIAnalysis:
 
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity data processor, specialising in vulnerability management.
+                                       
             Your sole objective is to take a list of existing vulnerability findings and consolidate them into a unique, deduplicated JSON list.
             
-            As part of your analysis, you should also ensure that the OWASP and CWE mappings are correctly allocated.
-
-            Do NOT scan for new vulnerabilities.
-            If multiple findings refer to the same vulnerability with the same CWE/OWASP mapping, these should be merged into a single finding in the output.
-            Use the provided source code ONLY as a reference to verify and consolidate the existing findings.
-                                       
-            When declaring confidence scores for each vulnerability, adjust accordingly based on the aggregation that was needed to form the final result. For example, if multiple findings are conflicting, then the confidence score may need to be reduced. A confidence score can help a human reviewer understand how certain you are about the accuracy of your findings. For all confidence scores, a 0 indicates no confidence, and a 10 indicates complete confidence.
-        """)
-
-        systemPrompt += self.vulnerabilityJsonSchema()
-        systemPrompt += self.explicitJsonOutputInstruction()
+            Schema guidelines:
+            - Use null for any optional values if not applicable.
+            - The "line" field should contain the exact code snippet from the source code.
+            - Do not output line numbers or offsets.
+            - Confidence scores should be based on the evidence of their respective category. Confidence scores allow a human reviewer to understand how certain you are about the accuracy of your findings.
+               
+            Explicit guidelines:
+            - Do not scan for new vulnerabilities.
+            - Consider findings duplicates if the `line` is identical and descriptions are semantically similar.
+            - When merging multiple findings for the same code snippet:
+                - Set each category confidence to the **maximum** of the duplicates.
+                - Set `overall` confidence to the **average** of the duplicates.
+            - When findings conflict (e.g., different descriptions for the same line), adjust confidence scores downward to reflect uncertainty.
+            - Use the provided source code only as a reference to verify and consolidate the existing findings.
+            - When making adjustments, ensure that findings are in plain English.
+            - Preserve all indentation and characters, without breaking JSON formatting rules.
+            - If the OWASP or CWE mapping is inconsistent, adjust accordingly where a majority is selected, or where there is a better fit for the code snippet and vulnerability.
+                        
+            Consider these OWASP Top 10 categories where applicable, as a reference:
+        """) + "\n".join([f"- {item['id']} {item['name']}" for item in owaspTop10Context])
 
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
@@ -221,18 +159,14 @@ class GenerativeAIAnalysis:
         userPrompt = textwrap.dedent(f"""\
             JSON findings:
                                      
-            ```json
-            {self.findings[fileReference]}
-            ```
+            {self.findings[fileReference]['vulnerabilities']}
                                      
-            For reference, the original code file:
+            Original code file for reference:
             
-            ```
             {fileContent}
-            ```
         """)
 
-        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, userPrompt)
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, userPrompt)
         self.logger.debug(payload)
 
         response = requests.post(
@@ -252,27 +186,32 @@ class GenerativeAIAnalysis:
     def assignCorrectCWEOWASPCategories(self, fileReference):
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity specialist, specialising in vulnerability classification and management.
-            Your primary focus is to ensure that any identified vulnerabilities are correctly mapped to their appropriate CWE and OWASP categories.
-            When presented with a list of vulnerabilities, your task is to review each one and assign the most accurate CWE ID(s) and OWASP Top 10 category, if applicable.
-                                       
-            It is very important that the CWE and OWASP mappings are as accurate as possible.
-            A list of OWASP Top 10 categories and their allowed mapped CWE IDs are as follows:
+            
+            Your task is to review a list of vulnerability findings and ensure that each finding is correctly mapped to its CWE ID(s) and OWASP Top 10 category, if applicable.
+            
+            Schema enforcement:
+            - Do not modify any field except `owasp_categories` and `cwe_ids`.
+            - Output must conform exactly to the `VulnerabilityScanResult` JSON schema.
+            - Preserve all other fields exactly as submitted.
+
+            Mapping rules:
+            - Use the authoritative OWASP Top 10 categories asn their allowed CWE IDs as the reference:
         """)
 
         for item in owaspTop10Context:
             systemPrompt += f"- {item['id']} {item['name']} ({', '.join([f'{cwe['id']}' for cwe in item.get('cwe_ids', [])])})\n"
         
         systemPrompt += textwrap.dedent("""\
-            This list is authoritative, and so if there is any mismatch between the OWASP category or the CWE IDs, then you should adjust the mappings to ensure they are correct according to the above list.
-                                       
-            You should not update any other part of the vulnerability finding except for the CWE and OWASP mappings.
-                                        
-            When returning a response, this should be in the same format as the JSON which was submitted.
+
+            Instructions:
+            - If any OWASP category or CWE ID does not match the authoritative mapping above, correct it.
+            - If multiple categories are plausible, include all that are applicable.
+            - If no CWE or OWASP category applies, use null.
+            - Do not invent new vulnerabilities or change any other fields.
+            - Return the output in the same JSON format as submitted, fully parseable by Python `json.loads()`.
         """)
 
-        systemPrompt += self.explicitJsonOutputInstruction()
-
-        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, json.dumps(self.findings[fileReference]))
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, json.dumps(self.findings[fileReference]['vulnerabilities']))
         self.logger.debug(payload)
 
         response = requests.post(
