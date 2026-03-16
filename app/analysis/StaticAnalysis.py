@@ -11,22 +11,30 @@ class StaticAnalysis:
     analysisFindings: list
     psalmConfigPath: str
 
-    def __init__(self, filesForAnalysis):
+    def __init__(self, filesForAnalysis, logger):
+        self.logger = logger
         self.psalmConfigPath = "/tmp/psalm.xml"
 
         self.buildConfigurationFile()
         self.runAnalysis(filesForAnalysis)
 
     def buildConfigurationFile(self):
+        self.logger.info(f"Building Psalm configuration file at {self.psalmConfigPath}.")
+
         if os.path.exists(self.psalmConfigPath):
-            print(ConsoleColour.toYellow(f"Psalm configuration file already exists at {self.psalmConfigPath}. Skipping configuration file creation."))
+            self.logger.info(ConsoleColour.toYellow(f"Psalm configuration file already exists at {self.psalmConfigPath}. Skipping configuration file creation."))
             return
 
         psalmConfig = XML.Element('psalm')
         xmlTree = XML.ElementTree(psalmConfig)
         xmlTree.write(self.psalmConfigPath, encoding='utf-8', xml_declaration=True)
 
+        self.logger.info(f"Successfully created Psalm configuration file at {self.psalmConfigPath}.")
+        self.logger.debug(XML.tostring(psalmConfig))
+
     def runAnalysis(self, targetDirectory):
+        self.logger.info(f"Running static analysis with Psalm on target directory: {targetDirectory}.")
+
         result = subprocess.run([
             "psalm",
             "--config", self.psalmConfigPath,
@@ -36,3 +44,6 @@ class StaticAnalysis:
         ], capture_output=True, text=True)
 
         self.analysisFindings = json.loads(result.stdout)
+
+        self.logger.info(f"Completed static analysis with Psalm. Found {len(self.analysisFindings)} issues.")
+        self.logger.debug(self.analysisFindings)

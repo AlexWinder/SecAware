@@ -16,7 +16,7 @@ class SoftwareCompositionAnalysis:
     rawManifestData: dict
     versionLookup: dict
 
-    def __init__(self, directoryPath=None):
+    def __init__(self, logger, directoryPath=None):
         self.dependencies = {}
         self.dependencyGraph = {}
         self.directoryPath = directoryPath
@@ -24,11 +24,12 @@ class SoftwareCompositionAnalysis:
         self.rawLockData = {}
         self.rawManifestData = {}
         self.versionLookup = {}
+        self.logger = logger
 
         if self.directoryPath:
             self.ingestPackageManifests()
             if self.isSimulatedLockData:
-                print(ConsoleColour.toYellow("Warning: No lock file found. Simulated lock data generated from manifest, but this may be inaccurate."))
+                self.logger.warning(ConsoleColour.toYellow("Warning: No lock file found. Simulated lock data generated from manifest, but this may be inaccurate."))
             self.buildInventory()
             self.buildAdjacencyList()
 
@@ -43,6 +44,8 @@ class SoftwareCompositionAnalysis:
         return f"pkg:packagist/{packageName}@{packageVersion}"
     
     def ingestPackageManifests(self):
+        self.logger.debug(f"Ingesting package manifests from directory: {self.directoryPath}")
+
         manifestPath = os.path.join(self.directoryPath, "composer.json")
         lockfilePath = os.path.join(self.directoryPath, "composer.lock")
 
@@ -64,7 +67,17 @@ class SoftwareCompositionAnalysis:
             # We don't have a lock file, so we can simulate one from the manifest, but this is less accurate
             self.generateSimulatedLockData()
 
+        self.logger.debug("Completed ingesting package manifests.")
+        self.logger.debug("Manifest data")
+        self.logger.debug(self.rawManifestData)
+        self.logger.debug("Lock data")
+        self.logger.debug(self.rawLockData)
+        self.logger.debug("Version lookup")
+        self.logger.debug(self.versionLookup)
+
     def generateSimulatedLockData(self):
+        self.logger.debug("Generating simulated lock data from manifest dependencies.")
+
         self.isSimulatedLockData = True
         mockPackages = []
         allDependencies = {**self.rawManifestData.get('require', {}), **self.rawManifestData.get('require-dev', {})}
@@ -86,6 +99,8 @@ class SoftwareCompositionAnalysis:
         self.versionLookup = {package['name']: package['version'] for package in mockPackages}
 
     def buildInventory(self):
+        self.logger.debug("Building inventory of dependencies from lock data.")
+
         allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
         for package in allPackages:
             packageUrl = self.generatePackageUrl(package['name'], package['version'])
@@ -99,7 +114,12 @@ class SoftwareCompositionAnalysis:
             if self.isSimulatedLockData:
                 self.dependencies[packageUrl]['possibleVersions'] = []
 
+        self.logger.debug(f"Completed building inventory with {len(self.dependencies)} dependencies.")
+        self.logger.debug(self.dependencies)
+
     def buildAdjacencyList(self):
+        self.logger.debug("Building adjacency list for dependency graph.")
+
         allPackages = self.rawLockData.get('packages', []) + self.rawLockData.get('packages-dev', [])
         for package in allPackages:
             parentPackageUrl = self.generatePackageUrl(package['name'], package['version'])
@@ -113,6 +133,9 @@ class SoftwareCompositionAnalysis:
                 if requirementVersion:
                     childRequirementPackageUrl = self.generatePackageUrl(requirement, requirementVersion)
                     self.dependencyGraph[parentPackageUrl].append(childRequirementPackageUrl)
+        
+        self.logger.debug("Completed building adjacency list for dependency graph.")
+        self.logger.debug(self.dependencyGraph)
 
     def getNestedDependencies(self):
         results = {
@@ -166,6 +189,8 @@ class SoftwareCompositionAnalysis:
         # Capture the keys in a list to maintain the original order
         dependencies = list(self.dependencies.keys())
 
+        self.logger.debug(f"Querying OSV API for known vulnerabilities for {len(dependencies)} dependencies.")
+
         # If not simulated data, we can just query the exact version for each dependency
         if not self.isSimulatedLockData:
             payload = {'queries': []}
@@ -181,6 +206,9 @@ class SoftwareCompositionAnalysis:
                 }
 
                 payload['queries'].append(query)
+            
+            self.logger.debug(f"Querying OSV API with exact dependency version data.")
+            self.logger.debug(payload)
         
             response = requests.post(
                 'https://api.osv.dev/v1/querybatch',
@@ -191,6 +219,8 @@ class SoftwareCompositionAnalysis:
             if 'results' in data:
                 for dep, result in zip(dependencies, data['results']):
                     vulns = result.get('vulns', [])
+
+                    self.logger.debug(f"Received {len(vulns)} vulnerabilities for dependency {dep} from OSV API.")
 
                     for vuln in vulns:
                         self.dependencies[dep]['vulnerabilities'][vuln.get('id')] = {
@@ -211,6 +241,10 @@ class SoftwareCompositionAnalysis:
                         }
                     }
                     payload['queries'].append(query)
+
+                self.logger.debug(f"Querying OSV API for dependency {dep} with {len(payload['queries'])} possible versions due to simulated lock data.")
+                self.logger.debug(payload)
+
                 response = requests.post(
                     'https://api.osv.dev/v1/querybatch',
                     json=payload,
@@ -219,6 +253,9 @@ class SoftwareCompositionAnalysis:
                 if 'results' in data:
                     for result in data['results']:
                         vulns = result.get('vulns', [])
+
+                        self.logger.debug(f"Received {len(vulns)} vulnerabilities for dependency {dep} with simulated version data from OSV API.")
+
                         for vuln in vulns:
                             # Only populate the vulnerability if it's not already captured - prevents duplicates across versions
                             if vuln.get('id') not in self.dependencies[dep]['vulnerabilities']:
@@ -227,12 +264,15 @@ class SoftwareCompositionAnalysis:
                                 }
 
     def getMoreDetailsForAllKnownCVEs(self):
+        self.logger.debug("Fetching more details for all known CVEs from OSV API.")
+
         # The /querybatch endpoint doesn't return all details, so we make individual requests for each CVE
         for dep in self.dependencies.keys():
             if len(self.dependencies[dep]['vulnerabilities']) == 0: continue
 
             for vuln in self.dependencies[dep]['vulnerabilities'].keys():
-                print(f"Fetching vulnerability details for {vuln}...")
+                self.logger.info(f"Fetching vulnerability details for {vuln} affecting dependency {dep}.")
+
                 response = requests.get(
                     f"https://api.osv.dev/v1/vulns/{vuln}"
                 )
@@ -257,17 +297,26 @@ class SoftwareCompositionAnalysis:
                 mergedData = {**existingData, **additionalData}
                 self.dependencies[dep]['vulnerabilities'][vuln] = mergedData
 
+        self.logger.info("Completed fetching details for known CVEs.")
+        dependencyCount = len(self.dependencies)
+        totalVulnerabilities = sum(len(self.dependencies[dep]['vulnerabilities']) for dep in self.dependencies)
+        self.logger.info(f"Total dependencies with known vulnerabilities: {sum(1 for dep in self.dependencies if len(self.dependencies[dep]['vulnerabilities']) > 0)} out of {dependencyCount} dependencies.")
+        self.logger.info(f"Total known vulnerabilities: {totalVulnerabilities}")
+
     def getAllPossibleVersionsForSimulatedData(self):
         if not self.isSimulatedLockData:
             return
+        
+        self.logger.debug("Getting all possible versions for dependencies using Packagist API due to simulated lock data.")
         
         # Get all versions for each package from Packagist API
         for dep in self.dependencies.keys():
             dependency = self.dependencies[dep]
 
+            self.logger.debug(f"Fetching versions for {dependency['name']}")
+
             # https://packagist.org/apidoc
             response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
-            
             json = response.json()
             allVersions = []
 
@@ -278,13 +327,18 @@ class SoftwareCompositionAnalysis:
 
             self.dependencies[dep]['possibleVersions'] = self.filterVersionsByConstraint(allVersions, dependency['version'])
 
+            self.logger.debug(f"Found {len(self.dependencies[dep]['possibleVersions'])} possible versions for {dependency['name']} with constraint {dependency['version']}")
+            self.logger.debug(self.dependencies[dep]['possibleVersions'])
+        
+        self.logger.debug("Completed fetching possible versions for dependencies.")
+
     def filterVersionsByConstraint(self, allVersions, constraint):
         normalisedConstraint = constraint.lstrip('vV')
         
         try:
             spec = semantic_version.NpmSpec(normalisedConstraint)
         except ValueError:
-            print(ConsoleColour.toYellow(f"Warning: Unable to parse version constraint '{constraint}'. Using all versions."))
+            self.logger.warning(f"Warning: Unable to parse version constraint '{constraint}'. Using all versions.")
             return allVersions
         
         compatibleVersions = []
@@ -298,7 +352,7 @@ class SoftwareCompositionAnalysis:
                 if coercedVersion in spec:
                     compatibleVersions.append(version)
             except ValueError:
-                print(ConsoleColour.toYellow(f"Warning: Unable to parse version '{version}' for package with constraint '{constraint}'. Skipping this version."))
+                self.logger.warning(f"Warning: Unable to parse version '{version}' for package with constraint '{constraint}'. Skipping this version.")
                 continue
 
         return compatibleVersions

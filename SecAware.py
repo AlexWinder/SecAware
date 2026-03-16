@@ -3,6 +3,7 @@
 import argparse
 import dotenv
 import json
+import logging
 import os
 import pathlib
 import requests
@@ -46,46 +47,74 @@ class SecAware:
     gitRepoLocalPath: str
     gitRepoRemoteUrl: str
     gitCommitHash: str
+    loggers: dict
     reportPath: str
     startTime: str
 
     def __init__(self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
+        gitPath = pathlib.Path(gitRepoRemoteUrl)
+        gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
+        self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
+
+        self.reportPath = relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
+        self.configureLogging(logPath=f"{self.reportPath}/secaware.log")
+        self.loggers = {
+            'secAware': logging.getLogger('SecAware'),
+            'generativeAIAnalysis': logging.getLogger('SecAware.GAIA'),
+            'softwareCompositionAnalysis': logging.getLogger('SecAware.SCA'),
+            'staticAnalysis': logging.getLogger('SecAware.SA'),
+        }
+
+        logger = self.loggers['secAware']
+
+        logger.info(ConsoleColour.toYellow("Initialising SecAware"))
+        
         self.aiModel = aiModel
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
         self.startTime = time.perf_counter()
 
-        gitPath = pathlib.Path(gitRepoRemoteUrl)
-        gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
-        self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
-
-        self.reportPath = relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
+        logger.debug(f"AI Model: {self.aiModel}")
+        logger.debug(f"AI REST API Base URL: {self.aiRestApiBaseUrl}")
+        logger.debug(f"Git Repo URL: {self.gitRepoRemoteUrl}")
+        logger.debug(f"Git Commit Hash: {self.gitCommitHash}")
+        logger.debug(f"Start Time: {self.startTime}")
 
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
         
-        print(ConsoleColour.toYellow("Preparing Git Repository for Analysis"))
-        GitHelper.shallowClone(self.gitRepoLocalPath, self.gitRepoRemoteUrl, self.gitCommitHash)
+        logger.info(ConsoleColour.toYellow("Preparing Git Repository for Analysis"))
+        GitHelper.shallowClone(self.gitRepoLocalPath, self.gitRepoRemoteUrl, self.gitCommitHash, logger=logger)
         self.gitChangedFiles = GitHelper.diffFiles(self.gitRepoLocalPath, self.gitCommitHash)
 
-        print(ConsoleColour.toYellow("Detecting Files for Analysis"))
+        logger.info(ConsoleColour.toYellow("Detecting Files for Analysis"))
         self.codeFilesForAnalysis = self.identifySuitableFilesForAnalysis(self.gitChangedFiles)
         self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
-        print(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.\n")
+        logger.info(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.")
 
-        print(ConsoleColour.toBlue("Software Composition Analysis (SCA)"))
+        logger.info(ConsoleColour.toBlue("Software Composition Analysis (SCA)"))
         try:
-            self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(directoryPath=self.gitRepoLocalPath)
-            dumpJsonToFile(f"{self.reportPath}/sca.json", self.componentSoftwareCompositionAnalysis.dependencies)
+            self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(
+                logger=self.loggers['softwareCompositionAnalysis'],
+                directoryPath=self.gitRepoLocalPath
+            )
+            scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
+            logger.info(f"Dumping SCA results to {scaJsonPath}")
+            dumpJsonToFile(scaJsonPath, self.componentSoftwareCompositionAnalysis.dependencies)
+            logger.debug(self.componentSoftwareCompositionAnalysis.dependencies)
         except SCAMissingDependencyFilesError:
-            print(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
+            logger.critical(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
         except SCAMissingDirectoryError:
-            print(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
+            logger.critical(ConsoleColour.toRed("Skipping SCA due to missing directory path."))
 
-        print(ConsoleColour.toBlue("Static Analysis"))
-        self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath)
-        dumpJsonToFile(f"{self.reportPath}/sa.json", self.componentStaticAnalysis.analysisFindings)
+        logger.info(ConsoleColour.toBlue("Static Analysis"))
+        self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath, logger=self.loggers['staticAnalysis'])
+        
+        saJsonPath = f"{self.reportPath}/analysisFindingsSA.json"
+        logger.info(f"Dumping Static Analysis results to {saJsonPath}")
+        dumpJsonToFile(saJsonPath, self.componentStaticAnalysis.analysisFindings)
+        logger.debug(self.componentStaticAnalysis.analysisFindings)
 
         print(ConsoleColour.toBlue("Generative AI Analysis"))
         try:
@@ -107,7 +136,7 @@ class SecAware:
         self.printConsoleSummary()
 
     def errorMessage(self, message):
-        ConsoleColour.toRed(message)
+        self.loggers['secAware'].critical(ConsoleColour.toRed(message))
         sys.exit(1)
 
     def checkDotEnvFileExists(self):
@@ -123,6 +152,22 @@ class SecAware:
 
     def formatBaseUrl(self, url):
         return url.rstrip('/')
+    
+    def configureLogging(self, logPath):
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+            filename=logPath,
+            filemode='w'
+        )
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+        console.setFormatter(formatter)
+        logging.getLogger().addHandler(console)
+
+        logging.debug("Logging configured. Log file: " + logPath)
     
     def identifySuitableFilesForAnalysis(self, allFiles):
         suitableFiles = [file for file in allFiles if file.endswith('.php')]
