@@ -92,6 +92,7 @@ class SecAware:
         self.codeFilesForAnalysis = self.identifySuitableFilesForAnalysis(self.gitChangedFiles)
         self.dependencyManagementFiles = self.detectDependencyManagementFiles(self.gitRepoLocalPath)
         logger.info(f"Identified {len(self.codeFilesForAnalysis)} code files for vulnerability analysis.")
+        logger.debug(self.codeFilesForAnalysis)
 
         logger.info(ConsoleColour.toBlue("Software Composition Analysis (SCA)"))
         try:
@@ -100,7 +101,7 @@ class SecAware:
                 directoryPath=self.gitRepoLocalPath
             )
             scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
-            logger.info(f"Dumping SCA results to {scaJsonPath}")
+            logger.info(f"Dumping SCA results to {scaJsonPath}.")
             dumpJsonToFile(scaJsonPath, self.componentSoftwareCompositionAnalysis.dependencies)
             logger.debug(self.componentSoftwareCompositionAnalysis.dependencies)
         except SCAMissingDependencyFilesError:
@@ -110,30 +111,35 @@ class SecAware:
 
         logger.info(ConsoleColour.toBlue("Static Analysis"))
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath, logger=self.loggers['staticAnalysis'])
-        
         saJsonPath = f"{self.reportPath}/analysisFindingsSA.json"
-        logger.info(f"Dumping Static Analysis results to {saJsonPath}")
+        logger.info(f"Dumping Static Analysis results to {saJsonPath}.")
         dumpJsonToFile(saJsonPath, self.componentStaticAnalysis.analysisFindings)
         logger.debug(self.componentStaticAnalysis.analysisFindings)
 
-        print(ConsoleColour.toBlue("Generative AI Analysis"))
+        logger.info(ConsoleColour.toBlue("Generative AI Analysis"))
         try:
             self.componentGenerativeAIAnalysis = GenerativeAIAnalysis(
                 baseUrl=self.aiRestApiBaseUrl,
                 directoryToScanPath=self.gitRepoLocalPath,
                 filesToScan=self.codeFilesForAnalysis,
                 model=self.aiModel,
+                logger=self.loggers['generativeAIAnalysis']
             )
-            dumpJsonToFile(f"{self.reportPath}/ai.json", self.componentGenerativeAIAnalysis.findings)
+            aiJsonPath = f"{self.reportPath}/analysisFindingsGAIA.json"
+            logger.info(f"Dumping Generative AI Analysis results to {aiJsonPath}.")
+            dumpJsonToFile(aiJsonPath, self.componentGenerativeAIAnalysis.findings)
+            logger.debug(self.componentGenerativeAIAnalysis.findings)
         except GAIAModelNotAvailableError as e:
-            print(ConsoleColour.toRed(str(e)))
-            print(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
+            logger.critical(ConsoleColour.toRed(str(e)))
+            logger.critical(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
 
         self.combinedVulnerabilityFindings = self.combineRelevantFindings()
-        dumpJsonToFile(f"{self.reportPath}/combined_findings.json", self.combinedVulnerabilityFindings)
-        self.produceContextualisedReport()
+        combinedFindingsJsonPath = f"{self.reportPath}/analysisFindingsCombined.json"
+        logger.info(f"Dumping combined vulnerability findings to {combinedFindingsJsonPath}.")
+        dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
-        self.printConsoleSummary()
+        self.produceContextualisedReport()
+        self.executionSummary()
 
     def errorMessage(self, message):
         self.loggers['secAware'].critical(ConsoleColour.toRed(message))
@@ -156,14 +162,14 @@ class SecAware:
     def configureLogging(self, logPath):
         logging.basicConfig(
             level=logging.DEBUG,
-            format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+            format='%(asctime)s %(name)-14s %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S',
             filename=logPath,
             filemode='w'
         )
         console = logging.StreamHandler()
         console.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
+        formatter = logging.Formatter('%(name)-14s: %(levelname)-8s %(message)s')
         console.setFormatter(formatter)
         logging.getLogger().addHandler(console)
 
@@ -187,9 +193,17 @@ class SecAware:
         return filePath
 
     def combineRelevantFindings(self):
+        self.loggers['secAware'].info("Combining findings from Static Analysis and Generative AI Analysis.")
         aggregatedFindings = {}
 
-        for finding in self.componentStaticAnalysis.analysisFindings:
+        if not hasattr(self, 'componentStaticAnalysis') or not isinstance(self.componentStaticAnalysis, StaticAnalysis):
+            filePath = f"{self.reportPath}/analysisFindingsSA.json"
+            with open(filePath, 'r', encoding='utf-8') as f:
+                findingsSA = json.load(f)
+        else:
+            findingsSA = self.componentStaticAnalysis.analysisFindings
+
+        for finding in findingsSA:
             filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
 
             if filePath not in aggregatedFindings:
@@ -221,8 +235,15 @@ class SecAware:
             findingEntry['trace'] = trace
             
             aggregatedFindings[filePath]['staticAnalysis'].append(findingEntry)
+
+        if not hasattr(self, 'componentGenerativeAIAnalysis') or not isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            filePath = f"{self.reportPath}/analysisFindingsGAIA.json"
+            with open(filePath, 'r', encoding='utf-8') as f:
+                findingsGAIA = json.load(f).items()
+        else:
+            findingsGAIA = self.componentGenerativeAIAnalysis.findings.items()
         
-        for filePath, finding in self.componentGenerativeAIAnalysis.findings.items():
+        for filePath, finding in findingsGAIA:
             vulnerabilities = finding.get('vulnerabilities', [])
 
             # Ignore missing vulnerabilities
@@ -322,21 +343,23 @@ class SecAware:
 
             print(aiMessageContent)
 
-    def printConsoleSummary(self):
-        print("\n")
+    def executionSummary(self):
+        self.loggers['secAware'].debug("Execution Summary")
 
-        print(ConsoleColour.toGreen("Summary of Findings"))
-        print('├── Git Repository: ' + ConsoleColour.toBlue(self.gitRepoRemoteUrl))
-        print('├── Git Commit: ' + ConsoleColour.toBlue(self.gitCommitHash))
-        print('├── Total Suitable Files Changed: ' + ConsoleColour.toBlue(str(len(self.codeFilesForAnalysis))))
-        print('├── AI Model: ' + ConsoleColour.toBlue(self.aiModel))
-        print('├── AI REST API Base URL: ' + ConsoleColour.toBlue(self.aiRestApiBaseUrl))
-        print("└── Analysis Time: " + ConsoleColour.toBlue(f"{time.perf_counter() - self.startTime:.2f} seconds"))
-        print("\n")
+        summary = []
 
-        print(ConsoleColour.toYellow('Software Composition Analysis (SCA)'))
+        summary.append(f"Summary of Findings")
+        summary.append(f"├── Git Repository: {self.gitRepoRemoteUrl}")
+        summary.append(f"├── Git Commit: {self.gitCommitHash}")
+        summary.append(f"├── Total Suitable Files Changed: {str(len(self.codeFilesForAnalysis))}")
+        summary.append(f"├── AI Model: {self.aiModel}")
+        summary.append(f"├── AI REST API Base URL: {self.aiRestApiBaseUrl}")
+        summary.append(f"└── Analysis Time: {time.perf_counter() - self.startTime:.2f} seconds")
+        summary.append(f"")
+
+        summary.append(f"Software Composition Analysis (SCA)")
         if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
-            print('├── Total Dependencies Detected: ' + ConsoleColour.toBlue(str(len(self.componentSoftwareCompositionAnalysis.dependencies))))
+            summary.append(f"├── Total Dependencies Detected: {str(len(self.componentSoftwareCompositionAnalysis.dependencies))}")
             scaVulnerabilityCount = 0
             for depInfo in self.componentSoftwareCompositionAnalysis.dependencies.values():
                 vulnerabilities = depInfo.get('vulnerabilities', {})
@@ -347,29 +370,34 @@ class SecAware:
             if simulated:
                 treeSymbol = "├── "
             
-            print(f"{treeSymbol}Total Dependency CVEs Detected: " + ConsoleColour.toBlue(str(scaVulnerabilityCount)))
+            summary.append(f"{treeSymbol}Total Dependency CVEs Detected: {str(scaVulnerabilityCount)}")
 
             if simulated:
-                print("└── " + ConsoleColour.toRed('Notice! Simulated lock data used. CVE results are likely inaccurate.'))
+                summary.append(f"└── Notice! Simulated lock data used. CVE results are likely inaccurate.")
         else:
-            print(ConsoleColour.toRed("└── SCA not performed."))
-        print("\n")
+            summary.append(f"└── SCA not performed.")
+        summary.append(f"")
 
-        print(ConsoleColour.toYellow('Static Analysis'))
+        summary.append(f"Static Analysis")
         if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
-            print('└── Total Static Analysis Findings Detected: ' + ConsoleColour.toBlue(str(len(self.componentStaticAnalysis.analysisFindings))))
+            summary.append(f"└── Total Static Analysis Findings Detected: {str(len(self.componentStaticAnalysis.analysisFindings))}")
         else:
-            print(ConsoleColour.toRed("└── Static Analysis not performed."))
-        print("\n")
+            summary.append(f"└── Static Analysis not performed.")
+        summary.append(f"")
 
-        print(ConsoleColour.toYellow('Generative AI Analysis'))
+        summary.append(f"Generative AI Analysis")
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
-            print('└── Total AI Analysis Vulnerabilities Detected: ' + ConsoleColour.toBlue(str(aiVulnerabilityCount)))
+            summary.append(f"└── Total AI Analysis Vulnerabilities Detected: {str(aiVulnerabilityCount)}")
         else:
-            print(ConsoleColour.toRed("└── Generative AI Analysis not performed."))
+            summary.append(f"└── Generative AI Analysis not performed.")
+        
+        self.loggers['secAware'].info("\n" + "\n".join(summary))
+
+        with open(f"{self.reportPath}/secawareExecutionSummary.txt", 'w', encoding='utf-8') as f:
+            f.write("\n" + "\n".join(summary))
 
 if __name__ == '__main__':
 
