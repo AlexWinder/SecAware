@@ -17,18 +17,19 @@ class GenerativeAIAnalysis:
     findings: dict
     model: str
 
-    def __init__(self, baseUrl, model, directoryToScanPath, filesToScan):
+    def __init__(self, baseUrl, model, directoryToScanPath, filesToScan, logger):
         self.baseUrl = baseUrl
         self.directoryToScanPath = directoryToScanPath
         self.filesToScan = filesToScan
         self.findings = {}
         self.model = model
+        self.logger = logger
         self.checkApiAccessible()
 
-        print(f"Starting generative AI vulnerability scan for {len(self.filesToScan)} files...")
+        self.logger.info(f"Performing generative AI vulnerability scan for {len(self.filesToScan)} files.")
 
         for index, file in enumerate(self.filesToScan):
-            print(ConsoleColour.toYellow(f"Analysing file {index + 1}/{len(self.filesToScan)}: {file}"))
+            self.logger.info(ConsoleColour.toYellow(f"Analysing file {index + 1}/{len(self.filesToScan)}: {file}"))
             self.vulnerabilityScanForFile(file)
 
     def checkApiAccessible(self):
@@ -36,7 +37,7 @@ class GenerativeAIAnalysis:
 
         for model in response.json().get('data', []):
             if model.get('id') == self.model:
-                print(f"Successfully connected to AI API and found model {self.model}")
+                self.logger.info(f"Successfully connected to AI API {self.baseUrl} and found model {self.model}.")
                 return
         
         raise GAIAModelNotAvailableError(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
@@ -53,19 +54,19 @@ class GenerativeAIAnalysis:
         # We scan several times because AI is non-deterministic
         scanRange = 3
         for i in range(scanRange):
-            print(f'Scanning file {relativeFilePath}, iteration {i+1}/{scanRange}...')
+            self.logger.info(f'Scanning {relativeFilePath} (iteration {i+1}/{scanRange}).')
             findings = self.initialVulnerabilityScan(absoluteFilePath)
 
             self.findings[relativeFilePath]["vulnerabilities"].append(findings)
 
-        print(f"Aggregating findings for file {relativeFilePath}...")
+        self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
         aggregated = self.aggregateInitialFindings(
             fileReference=relativeFilePath, 
             filePath=absoluteFilePath
         )
         self.findings[relativeFilePath]["vulnerabilities"] = aggregated
 
-        print(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}...")
+        self.logger.info(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}.")
         corrected = self.assignCorrectCWEOWASPCategories(
             fileReference=relativeFilePath
         )
@@ -155,6 +156,8 @@ class GenerativeAIAnalysis:
         """)
 
     def initialVulnerabilityScan(self, filePath):
+        self.logger.debug(f"Initial vulnerability scan for {filePath}.")
+
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity specialist who specialises in identifying vulnerabilities in software code. 
             You are primarily focused on PHP applications. When given a code file, you will analyse it for potential security vulnerabilities.
@@ -170,14 +173,18 @@ class GenerativeAIAnalysis:
 
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
+
+        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, fileContent)
+        self.logger.debug(payload)
         
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions", 
             headers=AIRestAPI.buildRequestHeaders(),
-            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, fileContent),
+            json=payload
         )
 
         responseJson = response.json()
+        self.logger.debug(responseJson)
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
@@ -186,8 +193,8 @@ class GenerativeAIAnalysis:
             try:
                 return json.loads(cleanedResponse)['vulnerabilities']
             except json.JSONDecodeError as e:
-                    print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                    print(responseJson)
+                    self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                    self.logger.debug(responseJson)
 
     def cleanUpResponse(self, response):
         # Tidy up the response by removing any markdown code blocks
@@ -195,6 +202,8 @@ class GenerativeAIAnalysis:
         return cleanedResponse
 
     def aggregateInitialFindings(self, fileReference, filePath):
+        self.logger.debug(f"Aggregating initial findings for {fileReference}.")
+
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity data processor, specialising in vulnerability management.
             Your sole objective is to take a list of existing vulnerability findings and consolidate them into a unique, deduplicated JSON list.
@@ -228,13 +237,17 @@ class GenerativeAIAnalysis:
             ```
         """)
 
+        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, userPrompt)
+        self.logger.debug(payload)
+
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
             headers=AIRestAPI.buildRequestHeaders(),
-            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, userPrompt)
+            json=payload
         )
 
         responseJson = response.json()
+        self.logger.debug(responseJson)
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
@@ -243,9 +256,8 @@ class GenerativeAIAnalysis:
             try:
                 return json.loads(cleanedResponse)['vulnerabilities']
             except json.JSONDecodeError as e:
-                print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                print(responseJson)
-                
+                self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                self.logger.debug(responseJson)
 
     def assignCorrectCWEOWASPCategories(self, fileReference):
         systemPrompt = textwrap.dedent("""\
@@ -270,13 +282,17 @@ class GenerativeAIAnalysis:
 
         systemPrompt += self.explicitJsonOutputInstruction()
 
+        payload = AIRestAPI.buildConversationPayload(self.model, systemPrompt, json.dumps(self.findings[fileReference]))
+        self.logger.debug(payload)
+
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions",
             headers=AIRestAPI.buildRequestHeaders(),
-            json=AIRestAPI.buildConversationPayload(self.model, systemPrompt, json.dumps(self.findings[fileReference]))
+            json=payload
         )
 
         responseJson = response.json()
+        self.logger.debug(responseJson)
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
@@ -285,8 +301,8 @@ class GenerativeAIAnalysis:
             try:
                 return json.loads(cleanedResponse)['vulnerabilities']
             except json.JSONDecodeError as e:
-                print(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
-                print(responseJson)
+                self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
+                self.logger.debug(responseJson)
 
 class GAIAModelNotAvailableError(Exception):
     pass
