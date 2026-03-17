@@ -105,7 +105,7 @@ class GenerativeAIAnalysis:
         with open(filePath, 'r', encoding='utf-8') as f:
             fileContent = f.read()
 
-        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, fileContent)
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, [fileContent])
         self.logger.debug(payload)
         
         response = requests.post(
@@ -169,7 +169,7 @@ class GenerativeAIAnalysis:
             {fileContent}
         """)
 
-        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, userPrompt)
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, [userPrompt])
         self.logger.debug(payload)
 
         response = requests.post(
@@ -214,7 +214,7 @@ class GenerativeAIAnalysis:
             - Return the output in the same JSON format as submitted, fully parseable by Python `json.loads()`.
         """)
 
-        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, json.dumps(self.findings[fileReference]['vulnerabilities']))
+        payload = AIRestAPI.buildConversationPayloadWithVulnerabilitySchema(self.model, systemPrompt, [json.dumps(self.findings[fileReference]['vulnerabilities'])])
         self.logger.debug(payload)
 
         response = requests.post(
