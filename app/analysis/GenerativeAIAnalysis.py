@@ -60,18 +60,21 @@ class GenerativeAIAnalysis:
             for finding in findings:
                 self.findings[relativeFilePath]["vulnerabilities"].append(finding)
 
-        self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
-        aggregated = self.aggregateInitialFindings(
-            fileReference=relativeFilePath, 
-            filePath=absoluteFilePath
-        )
-        self.findings[relativeFilePath]["vulnerabilities"] = aggregated
+        if len(self.findings[relativeFilePath]["vulnerabilities"]) > 0:
+            self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
+            aggregated = self.aggregateInitialFindings(
+                fileReference=relativeFilePath, 
+                filePath=absoluteFilePath
+            )
+            self.findings[relativeFilePath]["vulnerabilities"] = aggregated
 
-        self.logger.info(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}.")
-        corrected = self.assignCorrectCWEOWASPCategories(
-            fileReference=relativeFilePath
-        )
-        self.findings[relativeFilePath]["vulnerabilities"] = corrected
+            self.logger.info(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}.")
+            corrected = self.assignCorrectCWEOWASPCategories(
+                fileReference=relativeFilePath
+            )
+            self.findings[relativeFilePath]["vulnerabilities"] = corrected
+        else:
+            self.logger.info(f"No vulnerabilities found for file {relativeFilePath}.")
     
     def initialVulnerabilityScan(self, filePath):
         self.logger.debug(f"Initial vulnerability scan for {filePath}.")
