@@ -167,6 +167,9 @@ class SecAware:
         return url.rstrip('/')
     
     def configureLogging(self, logPath):
+        if not os.path.exists(os.path.dirname(logPath)):
+            os.makedirs(os.path.dirname(logPath), exist_ok=True)
+
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s %(name)-14s %(levelname)-8s %(message)s',
@@ -213,6 +216,10 @@ class SecAware:
         for finding in findingsSA:
             filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
 
+            # We only want to include findings for files that were in the commit diff
+            if filePath not in self.gitChangedFiles:
+                continue
+
             if filePath not in aggregatedFindings:
                 aggregatedFindings[filePath] = {
                     'staticAnalysis': [],
@@ -255,6 +262,10 @@ class SecAware:
 
             # Ignore missing vulnerabilities
             if not vulnerabilities:
+                continue
+
+            # We only want to include findings for files that were in the commit diff
+            if filePath not in self.gitChangedFiles:
                 continue
 
             if filePath not in aggregatedFindings:
