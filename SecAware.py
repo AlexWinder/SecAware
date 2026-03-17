@@ -138,7 +138,14 @@ class SecAware:
         logger.info(f"Dumping combined vulnerability findings to {combinedFindingsJsonPath}.")
         dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
-        self.produceContextualisedReport()
+        logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
+        report = self.produceContextualisedReport()
+        reportPath = f"{self.reportPath}/secawareVulnerabilityReport.md"
+        logger.info(f"Dumping vulnerability report to {reportPath}.")
+        with open(reportPath, 'w', encoding='utf-8') as f:
+            f.write(report)
+        logger.debug(report)
+
         self.executionSummary()
 
     def errorMessage(self, message):
@@ -278,25 +285,50 @@ class SecAware:
     
     def produceContextualisedReport(self):
         systemPrompt = textwrap.dedent("""\
-            You are a cybersecurity analyst assistant, specialised in vulnerability assessment.
-            Your task is to produce a contextualised vulnerability report for a software project based on initial vulnerability findings from both static analysis and generative AI analysis.
-            
-            You may find conflicting or duplicated findings between the two sources. Your task is to synthesise the information and provide clear but concise insights on the findings.
+            You are a cybersecurity analyst assistant, specialised in vulnerability assessment
                                        
-            You will be presented with the contents of the files, along with the findings, and you should use this information to produce an accurate report.
-            
-            The report should be produced in markdown and should be contain the following headings, with the following contents:
-            - SUMMARY = Brief summary of the overall security posture of the project based on the findings.
-            - FINDINGS = Findings for each file should be provided with the following details:
-                - RISK SCORE = A risk score for the vulnerability
-                - LOCATION = The vulnerable code snippet.
-                - DESCRIPTION = A brief description of the vulnerability, including the type of vulnerability.
-                - CATEGORY = An appropriate category against OWASP Top 10 and/or CWE, where possible.
-                - JUSTIFICATION = A justification of why the code is vulnerable, based on the evidence from the findings.
-                - REMEDIATION = Suggested fix(es) or remediation(s) for the vulnerability.
-            - GLOSSARY = A glossary of any technical terms should be provided, with clear and concise definitions.
+            Your task is to produce a clear, concise, and structured vulnerability report based on provided findings from static analysis and generative AI analysis.
+
+            You may encounter duplicate or conflicting findings. You must:
+            - Merge duplicate findings referring to the same code snippet and vulnerability.
+            - Resolve conflicts by prioritising the most strongly supported finding.
+            - Reflect uncertainty through wording and risk score where appropriate.
                                        
-            When allocating to OWASP/CWE categories, ensure to give a URL directly to the relevant category page on OWASP. Ensure that any CWE ID used is accurate and corresponds to the OWASP category. The below list of OWASP and CWE IDs are authoritative. These should be use as the source of truth. If the findings are categorised differently against this list then you should classify it as "Uncategorised":
+            ===============================
+            OUTPUT FORMAT (STRICT MARKDOWN)
+            ===============================
+                                       
+            # Summary
+            Provide a brief high-level assessment of the overall security posture of the project.
+            
+            # Findings
+            For each unique vulnerability, use the following structure:
+            
+            ## File Path: [File path]
+            - Risk Score: [0-10] ([Low [0-3]/Medium [4-6]/High [7-10]])
+            - Location: [Exact vulnerable code snippet]
+            - Description: [Clear description of the vulnerability and type]
+            - Category: [OWASP Top 10 Category Name(s)] ([OWASP URL])
+            - CWE ID(s): [CWE ID(s) if applicable]
+            - Justification: [Concise justification for why the code is vulnerable, based strictly on evidence]
+            - Remediation: [Suggested fix or remediation for the vulnerability, providing code examples where possible]
+                                       
+            Notes for findings:
+            - Do not duplicate the same vulnerability across findings.
+            - Each finding must correspond to a unique issue.
+                                       
+            # Glossary
+            Provide concise definitions for any technical terms used in the report.
+            
+            ====================
+            CLASSIFICATION RULES
+            ====================
+
+            - Use the OWASP Top 10 categories and CWE mappings below as the authoritative source.
+            - If a finding does not match any category, label it as "Uncategorised".
+            - Ensure CWE IDs are accurate and consistent with the OWASP category.
+            - Always include the OWASP URL when assigning a category.
+            
         """)
 
         for item in owaspTop10Context:
@@ -310,38 +342,38 @@ class SecAware:
         for filePath in self.combinedVulnerabilityFindings:
             findings = self.combinedVulnerabilityFindings[filePath]
 
+            fileContent = pathlib.Path(
+                os.path.join(self.gitRepoLocalPath, filePath)
+            ).read_text(encoding='utf-8')
+
             userPrompt += textwrap.dedent(f"""\
-                ==========
-                File Path: {filePath}
+                FILE: {filePath}
 
-                File Contents:
-                ```php
-                {pathlib.Path(os.path.join(self.gitRepoLocalPath, filePath)).read_text(encoding='utf-8')}
-                ```
+                SOURCE CODE:
+                {fileContent}
 
-                Static Analysis Findings:
-                ```json
+                STATIC ANALYSIS FINDINGS (JSON):
                 {json.dumps(findings.get('staticAnalysis', []))}
-                ```
 
-                Generative AI Analysis Findings:
-                ```json
+                GENERATIVE AI ANALYSIS FINDINGS (JSON):
                 {json.dumps(findings.get('generativeAIAnalysis', []))}
-                ```
-                ==========                      
+
+                END OF FILE
             """)
+
+        payload = AIRestAPI.buildConversationPayload(self.aiModel, systemPrompt, userPrompt)
+        self.loggers['secAware'].debug(payload)
 
         response = requests.post(
             f"{self.aiRestApiBaseUrl}/v1/chat/completions", 
             headers=AIRestAPI.buildRequestHeaders(),
-            json=AIRestAPI.buildConversationPayload(self.aiModel, systemPrompt, userPrompt)
+            json=payload
         )
 
         responseJson = response.json()
+        self.loggers['secAware'].debug(responseJson)
         if 'choices' in responseJson:
-            aiMessageContent = responseJson['choices'][0]['message']['content']
-
-            print(aiMessageContent)
+            return responseJson['choices'][0]['message']['content']
 
     def executionSummary(self):
         self.loggers['secAware'].debug("Execution Summary")
