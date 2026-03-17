@@ -294,9 +294,7 @@ class SecAware:
             - Resolve conflicts by prioritising the most strongly supported finding.
             - Reflect uncertainty through wording and risk score where appropriate.
                                        
-            ===============================
-            OUTPUT FORMAT (STRICT MARKDOWN)
-            ===============================
+            OUTPUT FORMAT (STRICT MARKDOWN):
                                        
             # Summary
             Provide a brief high-level assessment of the overall security posture of the project.
@@ -319,11 +317,8 @@ class SecAware:
                                        
             # Glossary
             Provide concise definitions for any technical terms used in the report.
-            
-            ====================
-            CLASSIFICATION RULES
-            ====================
-
+                                       
+            CLASSIFICATION RULES:
             - Use the OWASP Top 10 categories and CWE mappings below as the authoritative source.
             - If a finding does not match any category, label it as "Uncategorised".
             - Ensure CWE IDs are accurate and consistent with the OWASP category.
@@ -337,7 +332,7 @@ class SecAware:
             for cwe in item.get('cwe_ids', []):
                 systemPrompt += f"  - {cwe['id']} {cwe['name']}\n"
 
-        userPrompt = ''
+        userMessages = []
 
         for filePath in self.combinedVulnerabilityFindings:
             findings = self.combinedVulnerabilityFindings[filePath]
@@ -346,7 +341,7 @@ class SecAware:
                 os.path.join(self.gitRepoLocalPath, filePath)
             ).read_text(encoding='utf-8')
 
-            userPrompt += textwrap.dedent(f"""\
+            userMessages.append(textwrap.dedent(f"""\
                 FILE: {filePath}
 
                 SOURCE CODE:
@@ -357,11 +352,9 @@ class SecAware:
 
                 GENERATIVE AI ANALYSIS FINDINGS (JSON):
                 {json.dumps(findings.get('generativeAIAnalysis', []))}
+            """))
 
-                END OF FILE
-            """)
-
-        payload = AIRestAPI.buildConversationPayload(self.aiModel, systemPrompt, userPrompt)
+        payload = AIRestAPI.buildConversationPayload(self.aiModel, systemPrompt, userMessages)
         self.loggers['secAware'].debug(payload)
 
         response = requests.post(
