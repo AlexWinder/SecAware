@@ -98,7 +98,8 @@ class SecAware:
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(
                 logger=self.loggers['softwareCompositionAnalysis'],
-                directoryPath=self.gitRepoLocalPath
+                cacheDirectoryPath=relativeToScriptAbsolutePath("git-cache"),
+                gitProjectDirectoryPath=self.gitRepoLocalPath,
             )
             scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
             logger.info(f"Dumping SCA results to {scaJsonPath}.")
