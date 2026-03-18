@@ -1,32 +1,37 @@
 #!/usr/bin/env python3
 
+import datetime
 import json
 import os
+import pathlib
 import requests
 import semantic_version
 
 from app.utils.ConsoleColour import ConsoleColour
+from app.utils.GitHelper import GitHelper
 
 class SoftwareCompositionAnalysis:
+    cacheDirectoryPath: str
     dependencies: dict
     dependencyGraph: dict
-    directoryPath: str
+    gitProjectDirectoryPath: str
     isSimulatedLockData: bool
     rawLockData: dict
     rawManifestData: dict
     versionLookup: dict
 
-    def __init__(self, logger, directoryPath=None):
+    def __init__(self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None):
+        self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
         self.dependencyGraph = {}
-        self.directoryPath = directoryPath
+        self.gitProjectDirectoryPath = gitProjectDirectoryPath
         self.isSimulatedLockData = False
         self.rawLockData = {}
         self.rawManifestData = {}
         self.versionLookup = {}
         self.logger = logger
 
-        if self.directoryPath:
+        if self.gitProjectDirectoryPath:
             self.ingestPackageManifests()
             if self.isSimulatedLockData:
                 self.logger.warning(ConsoleColour.toYellow("Warning: No lock file found. Simulated lock data generated from manifest, but this may be inaccurate."))
@@ -34,6 +39,9 @@ class SoftwareCompositionAnalysis:
             self.buildAdjacencyList()
 
             self.getAllPossibleVersionsForSimulatedData()
+
+            self.getMetadataForAllDependencies()
+            self.createCachedCopyOfDependencyData()
 
             self.getKnownCVEsForAllPackages()
             self.getMoreDetailsForAllKnownCVEs()
@@ -44,14 +52,14 @@ class SoftwareCompositionAnalysis:
         return f"pkg:packagist/{packageName}@{packageVersion}"
     
     def ingestPackageManifests(self):
-        self.logger.debug(f"Ingesting package manifests from directory: {self.directoryPath}")
+        self.logger.debug(f"Ingesting package manifests from directory: {self.gitProjectDirectoryPath}")
 
-        manifestPath = os.path.join(self.directoryPath, "composer.json")
-        lockfilePath = os.path.join(self.directoryPath, "composer.lock")
+        manifestPath = os.path.join(self.gitProjectDirectoryPath, "composer.json")
+        lockfilePath = os.path.join(self.gitProjectDirectoryPath, "composer.lock")
 
         # At least a composer.json file is required to perform SCA
         if not os.path.exists(manifestPath):
-            raise SCAMissingDependencyFilesError(f"Missing composer.json in directory {self.directoryPath}. Required to perform Software Composition Analysis.")
+            raise SCAMissingDependencyFilesError(f"Missing composer.json in directory {self.gitProjectDirectoryPath}. Required to perform Software Composition Analysis.")
 
         with open(manifestPath, 'r', encoding='utf-8') as f:
             self.rawManifestData = json.load(f)
@@ -331,6 +339,100 @@ class SoftwareCompositionAnalysis:
             self.logger.debug(self.dependencies[dep]['possibleVersions'])
         
         self.logger.debug("Completed fetching possible versions for dependencies.")
+
+    def getMetadataForAllDependencies(self):
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+
+            usedVersion = dependency['version']
+
+            # If we're using simulated data, we don't have exact versions, so we need the most recent version
+            if self.isSimulatedLockData and dependency.get('possibleVersions'):
+                highestVersion = None
+                for v in dependency['possibleVersions']:
+                    try:
+                        cleanVersion = v.lstrip('vV')
+                        coercedVersion = semantic_version.Version.coerce(cleanVersion)
+                        
+                        cleanHighestVersion = highestVersion.lstrip('vV') if highestVersion else None
+                        coercedHighestVersion = semantic_version.Version.coerce(cleanHighestVersion) if highestVersion else None
+                        if not highestVersion or coercedVersion > coercedHighestVersion:
+                            highestVersion = v
+                    except ValueError:
+                        self.logger.warning(f"Warning: Unable to parse version '{v}' for package {dependency['name']}. Skipping this version for metadata retrieval.")
+                        continue
+                if highestVersion:
+                    usedVersion = str(highestVersion)
+                    self.logger.debug(f"For dependency {dependency['name']}, using highest possible version {usedVersion} for metadata retrieval due to simulated lock data.")
+            
+            # Get the version timestamp from Packagist API
+            self.logger.debug(f"Fetching versions timestamp for {dependency['name']} at version {usedVersion}.")
+
+            # https://packagist.org/apidoc
+            response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
+            json = response.json()
+
+            latestAvailableVersion = None
+            latestAvailableVersionTimestamp = None
+            latestAvailableVersionDateTime = None
+            usedVersionTimestamp = None
+
+            usedVersionSourceUrl = None
+            usedVersionSourceReference = None
+
+            if 'packages' in json and dependency['name'] in json['packages']:
+                for data in json['packages'][dependency['name']]:
+                    version = data.get('version')
+                    time = data.get('time')
+
+                    # Convert to a datetime for comparison
+                    timestamp = datetime.datetime.fromisoformat(time.replace('Z', '+00:00')) if time else None
+
+                    # Track the latest version
+                    if (latestAvailableVersionTimestamp is None or timestamp > latestAvailableVersionDateTime):
+                        latestAvailableVersionDateTime = timestamp
+                        latestAvailableVersionTimestamp = time
+                        latestAvailableVersion = version
+
+                    if data.get('version') == usedVersion:
+                        usedVersionTimestamp = data.get('time')
+                        usedVersionSourceUrl = data.get('source', {}).get('url')
+                        usedVersionSourceReference = data.get('source', {}).get('reference')
+            
+            self.dependencies[dep]['metadata'] = {
+                'usedVersion': {
+                    'version': usedVersion,
+                    'releaseTimestamp': usedVersionTimestamp
+                },
+                'latestAvailableVersion': {
+                    'version': latestAvailableVersion,
+                    'releaseTimestamp': latestAvailableVersionTimestamp
+                },
+                'gitSource': {
+                    'url': usedVersionSourceUrl,
+                    'reference': usedVersionSourceReference
+                }
+            }
+
+    def createCachedCopyOfDependencyData(self):
+        os.makedirs(self.cacheDirectoryPath, exist_ok=True)
+
+        # Create a clone of each dependency repo
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+            repoUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
+            repoReference = dependency.get('metadata', {}).get('gitSource', {}).get('reference')
+    
+            gitPath = pathlib.Path(repoUrl)
+            gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{repoReference[:7]}"
+            clonePath = os.path.join(self.cacheDirectoryPath, gitProjectSlug)
+
+            if repoUrl and repoReference:
+                self.logger.info(f"Caching repository for dependency {dependency['name']} from {repoUrl} at reference {repoReference} into {clonePath}.")
+                GitHelper.shallowClone(clonePath, repoUrl, repoReference, logger=self.logger, depth=1)
+
+                self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
+                self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
 
     def filterVersionsByConstraint(self, allVersions, constraint):
         normalisedConstraint = constraint.lstrip('vV')
