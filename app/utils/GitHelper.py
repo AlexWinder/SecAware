@@ -6,7 +6,7 @@ import subprocess
 
 class GitHelper:
     @staticmethod
-    def shallowClone(repoPath, repoUrl, commitHash, logger=None):
+    def shallowClone(repoPath, repoUrl, commitHash, logger=None, depth=2):
         def log(message):
             if logger is not None:
                 logger.info(message)
@@ -30,7 +30,7 @@ class GitHelper:
             repo = git.Repo.init(repoPath)
             origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
             # 2 depth needed to allow diffing from the parent
-            origin.fetch(commitHash, depth=2)
+            origin.fetch(commitHash, depth=depth)
             repo.git.checkout('FETCH_HEAD')
             log(f"Successfully cloned repository at {repoPath} with commit {commitHash}.")
 
