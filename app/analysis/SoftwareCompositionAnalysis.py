@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import datetime
+import dns.resolver
 import json
 import os
 import pathlib
@@ -43,7 +44,11 @@ class SoftwareCompositionAnalysis:
             self.getMetadataForAllDependencies()
             self.createCachedCopyOfDependencyData()
 
-            self.getKnownCVEsForAllPackages()
+            self.parseMetadataFromComposerManifestFile()
+            self.scanMetadataForWeakLinksForAllDependencies()
+            self.retrieveRepositoryStatisticsForAllDependencies()
+
+            self.getKnownCVEsForAllDependencies()
             self.getMoreDetailsForAllKnownCVEs()
         else:
             raise SCAMissingDirectoryError("No directory path provided for Software Composition Analysis.")
@@ -193,11 +198,11 @@ class SoftwareCompositionAnalysis:
 
         return node
     
-    def getKnownCVEsForAllPackages(self):
+    def getKnownCVEsForAllDependencies(self):
         # Capture the keys in a list to maintain the original order
         dependencies = list(self.dependencies.keys())
 
-        self.logger.debug(f"Querying OSV API for known vulnerabilities for {len(dependencies)} dependencies.")
+        self.logger.info(f"Querying OSV API for known vulnerabilities for {len(dependencies)} dependencies.")
 
         # If not simulated data, we can just query the exact version for each dependency
         if not self.isSimulatedLockData:
@@ -215,7 +220,7 @@ class SoftwareCompositionAnalysis:
 
                 payload['queries'].append(query)
             
-            self.logger.debug(f"Querying OSV API with exact dependency version data.")
+            self.logger.info(f"Querying OSV API with exact dependency version data.")
             self.logger.debug(payload)
         
             response = requests.post(
@@ -250,7 +255,7 @@ class SoftwareCompositionAnalysis:
                     }
                     payload['queries'].append(query)
 
-                self.logger.debug(f"Querying OSV API for dependency {dep} with {len(payload['queries'])} possible versions due to simulated lock data.")
+                self.logger.info(f"Querying OSV API for dependency {dep} with {len(payload['queries'])} possible versions due to simulated lock data.")
                 self.logger.debug(payload)
 
                 response = requests.post(
@@ -262,7 +267,7 @@ class SoftwareCompositionAnalysis:
                     for result in data['results']:
                         vulns = result.get('vulns', [])
 
-                        self.logger.debug(f"Received {len(vulns)} vulnerabilities for dependency {dep} with simulated version data from OSV API.")
+                        self.logger.info(f"Received {len(vulns)} vulnerabilities for dependency {dep} with simulated version data from OSV API.")
 
                         for vuln in vulns:
                             # Only populate the vulnerability if it's not already captured - prevents duplicates across versions
@@ -434,6 +439,207 @@ class SoftwareCompositionAnalysis:
                 self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
                 self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
 
+    def parseMetadataFromComposerManifestFile(self):
+        self.logger.info("Parsing metadata from composer.json manifest files for all dependencies.")
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+
+            composerManifestData = self.loadJsonFile(os.path.join(dependency['metadata']['gitSource']['cachedPath'], "composer.json"))
+            
+            # Get the license value within the composer.json file
+            licenseValue = composerManifestData.get('license') or None
+            if licenseValue:
+                # Determing if the license value is a string or a list
+                if isinstance(licenseValue, str):
+                    licenseList = [licenseValue]
+                elif isinstance(licenseValue, list):
+                    licenseList = licenseValue
+                else:
+                    self.logger.warning(f"Warning: Unrecognized license format for dependency {dependency['name']}. Expected string or list, got {type(licenseValue)}. Skipping license parsing for this dependency.")
+                    continue
+            
+            # Populate the license value in the dependencies data structure
+            self.dependencies[dep]['metadata']['license'] = licenseList
+            self.logger.debug(f"Parsed license for dependency {dependency['name']}: {licenseList}")
+
+            # Retrieve any authors defined - only get their email address
+            authorsValue = composerManifestData.get('authors') or None
+            if authorsValue and isinstance(authorsValue, list):
+                emailList = []
+                for author in authorsValue:
+                    email = author.get('email')
+                    if email and isinstance(email, str) and '@' in email:
+                        emailList.append(email)
+                self.dependencies[dep]['metadata']['authors'] = emailList
+                self.logger.debug(f"Parsed authors for dependency {dependency['name']}: {emailList}")
+
+    def scanMetadataForWeakLinksForAllDependencies(self):
+        self.logger.info("Scanning metadata for weak links for all dependencies.")
+
+        # https://getcomposer.org/doc/articles/scripts.md
+        scriptKeys = [
+            'scripts',
+            'pre-install-cmd',
+            'post-install-cmd',
+            'pre-update-cmd',
+            'post-update-cmd',
+            'pre-status-cmd',
+            'post-status-cmd',
+            'pre-archive-cmd',
+            'post-archive-cmd',
+            'pre-autoload-dump',
+            'post-autoload-dump',
+            'post-root-package-install',
+            'post-create-project-cmd',
+            'pre-operations-exec',
+            'pre-package-install',
+            'post-package-install',
+            'pre-package-update',
+            'post-package-update',
+            'pre-package-uninstall',
+            'post-package-uninstall',
+            'init',
+            'command',
+            'pre-file-download',
+            'post-file-download',
+            'pre-command-run',
+            'pre-pool-create',
+        ]
+        
+        def findWeakLinks(data, path=""):
+            results  = []
+
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    fullPath = f"{path}.{key}" if path else key
+
+                    # Detect weak HTTP links
+                    if isinstance(value, str) and value.lower().startswith("http://"):
+                        results.append({
+                            'field': fullPath, 
+                            'value': value,
+                            'message': f"Found non-HTTPS URL in field '{fullPath}': '{value}'. Prone to man-in-the-middle attack."
+                        })
+                    
+                    # Detect script keys - https://getcomposer.org/doc/articles/scripts.md
+                    if key.lower() in scriptKeys:
+                        results.append({
+                            'field': fullPath, 
+                            'value': value,
+                            'message': f"Found Composer script keyword '{key}': '{value}'. These scripts can execute arbitrary code and pose a security risk."
+                        })
+
+                    # Detect inactive maintainer email address
+                    if key.lower() == 'authors' and isinstance(value, list):
+                        for author in value:
+                            email = author.get('email')
+                            if email and isinstance(email, str) and '@' in email:
+                                # Get the domain from the email address
+                                domain = email.rsplit('@', 1)[1]
+
+                                mxRecords = self.checkMxRecordExistsForDomain(domain)
+                                if not mxRecords:
+                                    results.append({
+                                        'field': fullPath, 
+                                        'value': email,
+                                        'message': f"Email address '{email}' for author '{author.get('name')}' may be inactive as the domain '{domain}' has no MX records. This could indicate an unmaintained package or potential for account takeover."
+                                    })
+                    
+                    # Recurse into nested dicts/lists
+                    if isinstance(value, (dict, list)):
+                        results.extend(findWeakLinks(value, fullPath))
+            elif isinstance(data, list):
+                for index, item in enumerate(data):
+                    fullPath = f"{path}[{index}]"
+                    results.extend(findWeakLinks(item, fullPath))
+
+            return results
+        
+        for depName, dependency in self.dependencies.items():
+            composerManifestData = self.loadJsonFile(os.path.join(dependency['metadata']['gitSource']['cachedPath'], "composer.json"))
+
+            results = findWeakLinks(composerManifestData)
+            if results:
+                self.dependencies[depName].setdefault('weakLinks', []).extend(results)
+                for link in results:
+                    self.logger.warning(f"Warning in dependency {dependency['name']} - {link['message']}")
+
+    def checkMxRecordExistsForDomain(self, domain):
+        try:
+            answers = dns.resolver.resolve(domain, 'MX')
+            return len(answers) > 0
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.Timeout):
+            return False
+
+    def retrieveRepositoryStatisticsForAllDependencies(self):
+        self.logger.info("Retrieving repository statistics for all dependencies with GitHub repositories.")
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+            repoUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
+
+            if "github" in repoUrl.lower():
+                gitPath = pathlib.Path(repoUrl)
+                gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}"
+
+                response = requests.get(
+                    f"https://api.github.com/search/issues?q=\"repo:{gitProjectSlug}+is:issue+is:closed\"", 
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2026-03-10"
+                    }
+                )
+                totalClosed = response.json().get('total_count', 0)
+
+                response = requests.get(
+                    f"https://api.github.com/search/issues?q=\"repo:{gitProjectSlug}+is:issue+is:open\"", 
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2026-03-10"
+                    }
+                )
+                totalOpen = response.json().get('total_count', 0)
+
+                response = requests.get(
+                    f"https://api.github.com/repos/{gitProjectSlug}/commits",
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2026-03-10"
+                    }
+                )
+                commits = response.json()
+
+                mostRecentCommitDate = None
+                if isinstance(commits, list) and len(commits) > 0:
+                    mostRecentCommitDate = commits[0].get('commit', {}).get('author', {}).get('date')
+
+                # Get authors from dependency metadata
+                authors = self.dependencies[dep].get('metadata', {}).get('authors', [])
+                authorCommits = {email: None for email in authors}
+                
+                # Cycle through all of the commits, and get the date of the commit by each author
+                for commit in commits:
+                    author = commit.get('commit', {}).get('author', {})
+                    authorEmail = author.get('email')
+                    commitDateStr = author.get('date')
+
+                    if authorEmail in authorCommits and commitDateStr:
+                        commitDate = datetime.datetime.fromisoformat(commitDateStr.replace("Z", "+00:00"))
+
+                        prevDateStr = authorCommits[authorEmail]
+                        if prevDateStr is None:
+                            authorCommits[authorEmail] = commitDateStr
+                        else:
+                            prevDate = datetime.datetime.fromisoformat(prevDateStr.replace("Z", "+00:00"))
+                            if commitDate > prevDate:
+                                authorCommits[authorEmail] = commitDateStr
+
+                self.dependencies[dep]['metadata']['repositoryStatistics'] = {
+                    'totalClosedIssues': totalClosed,
+                    'totalOpenIssues': totalOpen,
+                    'overallRepositoryMostRecentCommitDate': mostRecentCommitDate,
+                    'authorMostRecentCommitDate': authorCommits
+                }
+
     def filterVersionsByConstraint(self, allVersions, constraint):
         normalisedConstraint = constraint.lstrip('vV')
         
@@ -458,6 +664,10 @@ class SoftwareCompositionAnalysis:
                 continue
 
         return compatibleVersions
+
+    def loadJsonFile(self, jsonPath):
+        with open(jsonPath, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
 class SCAMissingDependencyFilesError(Exception):
     pass
