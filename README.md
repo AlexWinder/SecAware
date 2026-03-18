@@ -24,7 +24,7 @@ When you intend to use SecAware, you should ensure that the LM Studio server is 
 
 [Hugging Face](https://huggingface.co/) is an open-source community for AI, providing resources surrounding particular models and access to inference providers. Hugging Face is a good alternative to be able to operate AI models where you may not have adequate hardware resources to be able to operate them locally.
 
-To use Hugging Face with SecAware, you can pass in `--ai-rest-base-url https://router.huggingface.co` and the `--ai-model` flag. Successful testing has been achieved with `google/gemma-3-27b-it`.
+To use Hugging Face with SecAware, you can pass in `--ai-rest-base-url https://router.huggingface.co` and the `--ai-model` flag. Successful testing has been achieved with `google/gemma-3-27b-it`, for example `./SecAware.py --ai-rest-base-url https://router.huggingface.co --ai-model google/gemma-3-27b-it`.
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ Please use the provided [Docker](Dockerfile) container. SecAware is designed wit
 # Build the container
 docker build -t secaware .
 
-# Install dependencies and run the system
+# Install dependencies and run SecAware
 docker run -it --rm \
     -v "$(pwd):/app" \
     -w /app \
