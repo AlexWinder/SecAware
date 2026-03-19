@@ -51,7 +51,10 @@ class SecAware:
     reportPath: str
     startTime: str
 
-    def __init__(self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash):
+    def __init__(
+            self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash, scaAllowedSPDXLicenses=[], scaOverallCommitMinimumActivityDays=None,
+            scaAuthorCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None
+        ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
         self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
@@ -100,6 +103,11 @@ class SecAware:
                 logger=self.loggers['softwareCompositionAnalysis'],
                 cacheDirectoryPath=relativeToScriptAbsolutePath("git-cache"),
                 gitProjectDirectoryPath=self.gitRepoLocalPath,
+                allowedSPDXLicenses=scaAllowedSPDXLicenses,
+                overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
+                authorCommitMinimumActivityDays=scaAuthorCommitMinimumActivityDays,
+                openToClosedIssueRatioThreshold=scaOpenToClosedIssueRadioThreshold,
+                minimumVersionAge=scaMinimumVersionAge
             )
             scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
             logger.info(f"Dumping SCA results to {scaJsonPath}.")
@@ -159,7 +167,7 @@ class SecAware:
 
     def loadEnvironmentVariables(self):
         dotenv.load_dotenv()
-        existingVars = ["AI_API_BEARER_TOKEN"]
+        existingVars = ["AI_API_BEARER_TOKEN", "GITHUB_API_BEARER_TOKEN"]
         for var in existingVars:
             if var not in os.environ:
                 self.errorMessage(f"{var} environment variable not set within .env file")
@@ -308,13 +316,13 @@ class SecAware:
                                        
             OUTPUT FORMAT (STRICT MARKDOWN):
                                        
-            # Summary
+            # Vulnerability Report
             Provide a brief high-level assessment of the overall security posture of the project.
             
-            # Findings
+            ## Findings
             For each unique vulnerability, use the following structure:
             
-            ## File Path: [File path]
+            ### File Path: [File path]
             - Risk Score: [0-10] ([Low [0-3]/Medium [4-6]/High [7-10]])
             - Location: [Exact vulnerable code snippet]
             - Description: [Clear description of the vulnerability and type]
@@ -327,7 +335,7 @@ class SecAware:
             - Do not duplicate the same vulnerability across findings.
             - Each finding must correspond to a unique issue.
                                        
-            # Glossary
+            ## Glossary
             Provide concise definitions for any technical terms used in the report.
                                        
             CLASSIFICATION RULES:
@@ -454,6 +462,11 @@ if __name__ == '__main__':
     # https://github.com/advisories/GHSA-4xf2-7qfv-mgfx
     parser.add_argument('--git-repo-url', type=str, default='https://github.com/in2code-de/ipandlanguageredirect.git', help='The Git repository HTTP URL to scan.')
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
+    parser.add_argument('--sca-allowed-spdx-licenses', nargs='+', default=[], help='(SCA) Allow-list of SPDX licenses for dependencies. See https://spdx.org/licenses/ for available license identifiers.')
+    parser.add_argument('--sca-overall-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for general commit activity.')
+    parser.add_argument('--sca-author-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for author commit activity.')
+    parser.add_argument('--sca-open-to-closed-issue-radio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
+    parser.add_argument('--sca-minimum-version-age', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
 
     args = parser.parse_args()
 
@@ -461,5 +474,10 @@ if __name__ == '__main__':
         aiModel=args.ai_model,
         aiRestApiBaseUrl=args.ai_rest_base_url,
         gitRepoRemoteUrl=args.git_repo_url,
-        gitCommitHash=args.git_commit_hash
+        gitCommitHash=args.git_commit_hash,
+        scaAllowedSPDXLicenses=args.sca_allowed_spdx_licenses,
+        scaOverallCommitMinimumActivityDays=args.sca_overall_commit_minimum_activity_days,
+        scaAuthorCommitMinimumActivityDays=args.sca_author_commit_minimum_activity_days,
+        scaOpenToClosedIssueRadioThreshold=args.sca_open_to_closed_issue_radio_threshold,
+        scaMinimumVersionAge=args.sca_minimum_version_age
     )
