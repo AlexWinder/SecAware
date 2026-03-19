@@ -19,18 +19,29 @@ class SoftwareCompositionAnalysis:
     isSimulatedLockData: bool
     rawLockData: dict
     rawManifestData: dict
+    userDefinedThresholds: dict
     versionLookup: dict
 
-    def __init__(self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None):
+    def __init__(
+            self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None, allowedSPDXLicenses=[], overallCommitMinimumActivityDays=None,
+            authorCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None
+        ):
         self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
         self.dependencyGraph = {}
         self.gitProjectDirectoryPath = gitProjectDirectoryPath
         self.isSimulatedLockData = False
+        self.logger = logger
         self.rawLockData = {}
         self.rawManifestData = {}
+        self.userDefinedThresholds = {
+            'allowedSPDXLicenses': allowedSPDXLicenses,
+            'overallCommitMinimumActivityDays': overallCommitMinimumActivityDays or 1,
+            'authorCommitMinimumActivityDays': authorCommitMinimumActivityDays or 1,
+            'openToClosedIssueRatioThreshold': openToClosedIssueRatioThreshold or 0.01,
+            'minimumVersionAge': minimumVersionAge or 3650
+        }
         self.versionLookup = {}
-        self.logger = logger
 
         if self.gitProjectDirectoryPath:
             self.ingestPackageManifests()
@@ -47,11 +58,130 @@ class SoftwareCompositionAnalysis:
             self.parseMetadataFromComposerManifestFile()
             self.scanMetadataForWeakLinksForAllDependencies()
             self.retrieveRepositoryStatisticsForAllDependencies()
+            self.identifyWeakLinksFromSpecifiedFlags()
+            self.identifyPassiveWeakLinks()
 
             self.getKnownCVEsForAllDependencies()
             self.getMoreDetailsForAllKnownCVEs()
+
+            self.buildMarkdownReport()
+
         else:
             raise SCAMissingDirectoryError("No directory path provided for Software Composition Analysis.")
+
+    def identifyWeakLinksFromSpecifiedFlags(self):
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+            
+            # Flag if the license doesn't match the allowed SPDX licenses
+            dependencyLicenses = dependency.get('metadata', {}).get('licenses', [])
+            for license in dependencyLicenses:
+                if license not in self.userDefinedThresholds['allowedSPDXLicenses']:
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'licenses', 
+                        'value': license,
+                        'message': f"License '{license}' for dependency '{dependency['name']}' is not in SPDX license allow list."
+                    })
+
+            # Flag if overall commit activity is below threshold
+            latestCommitDate = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('overallRepositoryMostRecentCommitDate')
+            if latestCommitDate:
+                latestCommitDateTime = datetime.datetime.fromisoformat(latestCommitDate.replace("Z", "+00:00"))
+                daysSinceLatestCommit = (datetime.datetime.now(datetime.timezone.utc) - latestCommitDateTime).days
+
+                if daysSinceLatestCommit > self.userDefinedThresholds['overallCommitMinimumActivityDays']:
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'repositoryStatistics.overallRepositoryMostRecentCommitDate', 
+                        'value': latestCommitDate,
+                        'message': f"Latest commit for dependency '{dependency['name']}' was {daysSinceLatestCommit} days ago, which is beyond the threshold of {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days."
+                    })
+
+            # Flag if maintainer commit activity is below threshold
+            # We don't care about each individual author, we just want to make sure at least one of them is active
+            # Also, no data suggests that the author activity couldn't be found, so we want to consider that as being inactive
+            authorCommitDates = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('authorMostRecentCommitDate', {})
+            mostRecentCommitDate = None
+            for author, commitDate in authorCommitDates.items():
+                # If we have a commit date to work with
+                if commitDate:
+                    commitDateTime = datetime.datetime.fromisoformat(commitDate.replace("Z", "+00:00"))
+                    # Check if this is the most recent commit we've seen so far
+                    if mostRecentCommitDate is None or commitDateTime > mostRecentCommitDate:
+                        mostRecentCommitDate = commitDateTime
+                else:
+                    # An author has no commit data, so we treat them as inactive
+                    mostRecentCommitDate = None
+            if not mostRecentCommitDate:
+                self.dependencies[dep].setdefault('weakLinks', []).append({
+                    'field': 'repositoryStatistics.authorMostRecentCommitDate', 
+                    'value': authorCommitDates,
+                    'message': f"No recent commit activity found for any authors of dependency '{dependency['name']}'. This could indicate an unmaintained package."
+                })
+            else:
+                daysSinceMostRecent = (datetime.datetime.now(datetime.timezone.utc) - mostRecentCommitDate).days
+                if daysSinceMostRecent > self.userDefinedThresholds['authorCommitMinimumActivityDays']:
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'repositoryStatistics.authorMostRecentCommitDate', 
+                        'value': authorCommitDates,
+                        'message': f"Most recent commit by an author for dependency '{dependency['name']}' was {daysSinceMostRecent} days ago, which is beyond the threshold of {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days. This could indicate an unmaintained package."
+                    })
+
+            openIssues = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('totalOpenIssues', 0)
+            closedIssues = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('totalClosedIssues', 0)
+
+            if openIssues > 0 and closedIssues > 0:
+                openToClosedRatio = openIssues / closedIssues
+                if openToClosedRatio > self.userDefinedThresholds['openToClosedIssueRatioThreshold']:
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'repositoryStatistics.openToClosedIssueRatio', 
+                        'value': openToClosedRatio,
+                        'message': f"Open to closed issue ratio for dependency '{dependency['name']}' is {openToClosedRatio:.2f}, which is above the threshold of {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}. Open issues: {openIssues}. Closed issues: {closedIssues}. This could indicate an unmaintained package or one with a high number of unresolved issues."
+                    })
+
+            # Check that a version being used isn't too new
+            usedVersionTimestamp = dependency.get('metadata', {}).get('usedVersion', {}).get('releaseTimestamp')
+            usedVersionString = dependency.get('metadata', {}).get('usedVersion', {}).get('version')
+            if usedVersionTimestamp:
+                usedVersionDateTime = datetime.datetime.fromisoformat(usedVersionTimestamp.replace("Z", "+00:00"))
+                versionAgeInDays = (datetime.datetime.now(datetime.timezone.utc) - usedVersionDateTime).days
+
+                if versionAgeInDays < self.userDefinedThresholds['minimumVersionAge']:
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'metadata.usedVersion.releaseTimestamp', 
+                        'value': usedVersionTimestamp,
+                        'message': f"Used version '{usedVersionString}' for dependency '{dependency['name']}' was released {versionAgeInDays} days ago, which is below the minimum version age threshold of {self.userDefinedThresholds['minimumVersionAge']} days. Using very new versions can be risky as they may be prone to hijack."
+                    })
+    
+    def identifyPassiveWeakLinks(self):
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+
+            # If a dependency has no source URL, we want to flag it
+            gitSourceUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
+            if not gitSourceUrl:
+                self.dependencies[dep].setdefault('weakLinks', []).append({
+                    'field': 'metadata.gitSource.url', 
+                    'value': gitSourceUrl,
+                    'message': f"No source URL found for dependency '{dependency['name']}'. This could make it difficult to verify the legitimacy of the package and track any potential vulnerabilities or issues."
+                })
+
+            # Determine if the dependency is using the latest available version
+            latestAvailableVersionTimestamp = dependency.get('metadata', {}).get('latestAvailableVersion', {}).get('releaseTimestamp')
+            usedVersionTimestamp = dependency.get('metadata', {}).get('usedVersion', {}).get('releaseTimestamp')
+            if latestAvailableVersionTimestamp and usedVersionTimestamp:
+                latestAvailableVersionDateTime = datetime.datetime.fromisoformat(latestAvailableVersionTimestamp.replace("Z", "+00:00"))
+                usedVersionDateTime = datetime.datetime.fromisoformat(usedVersionTimestamp.replace("Z", "+00:00"))
+
+                if usedVersionDateTime < latestAvailableVersionDateTime:
+                    daysBehindLatest = (latestAvailableVersionDateTime - usedVersionDateTime).days
+                    self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'field': 'metadata.usedVersion.releaseTimestamp', 
+                        'value': usedVersionTimestamp,
+                        'message': f"Used version for dependency '{dependency['name']}' is {daysBehindLatest} days behind the latest available version. Using outdated versions can be risky as they may contain unpatched vulnerabilities."
+                    })
+
+    def buildMarkdownReport(self):
+        pass
 
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
@@ -390,6 +520,10 @@ class SoftwareCompositionAnalysis:
                     version = data.get('version')
                     time = data.get('time')
 
+                    if not version or not time:
+                        self.logger.debug(f"Skipping version data for {dependency['name']} due to missing version or time. Version: {version}, Time: {time}")
+                        continue
+
                     # Convert to a datetime for comparison
                     timestamp = datetime.datetime.fromisoformat(time.replace('Z', '+00:00')) if time else None
 
@@ -427,8 +561,13 @@ class SoftwareCompositionAnalysis:
             dependency = self.dependencies[dep]
             repoUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
             repoReference = dependency.get('metadata', {}).get('gitSource', {}).get('reference')
+
+            if not repoUrl:
+                self.logger.warning(f"Warning: No repository URL found for dependency {dependency['name']}. Skipping caching for this dependency.")
+                continue
     
             gitPath = pathlib.Path(repoUrl)
+            self.logger.debug(f"Parsed git path for dependency {dependency['name']}: {gitPath}")
             gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{repoReference[:7]}"
             clonePath = os.path.join(self.cacheDirectoryPath, gitProjectSlug)
 
@@ -444,9 +583,15 @@ class SoftwareCompositionAnalysis:
         for dep in self.dependencies.keys():
             dependency = self.dependencies[dep]
 
+            cachedPath = dependency.get('metadata', {}).get('gitSource', {}).get('cachedPath')
+
+            if not cachedPath:
+                self.logger.warning(f"Warning: No cached repository path found for dependency {dependency['name']}. Skipping metadata parsing for this dependency.")
+                continue
+
             composerManifestData = self.loadJsonFile(os.path.join(dependency['metadata']['gitSource']['cachedPath'], "composer.json"))
             
-            # Get the license value within the composer.json file
+            # Get the license values within the composer.json file
             licenseValue = composerManifestData.get('license') or None
             if licenseValue:
                 # Determing if the license value is a string or a list
@@ -459,7 +604,7 @@ class SoftwareCompositionAnalysis:
                     continue
             
             # Populate the license value in the dependencies data structure
-            self.dependencies[dep]['metadata']['license'] = licenseList
+            self.dependencies[dep]['metadata']['licenses'] = licenseList
             self.logger.debug(f"Parsed license for dependency {dependency['name']}: {licenseList}")
 
             # Retrieve any authors defined - only get their email address
@@ -556,6 +701,12 @@ class SoftwareCompositionAnalysis:
             return results
         
         for depName, dependency in self.dependencies.items():
+            cachedPath = dependency.get('metadata', {}).get('gitSource', {}).get('cachedPath')
+
+            if not cachedPath:
+                self.logger.warning(f"Warning: No cached repository path found for dependency {dependency['name']}. Skipping weak link scanning for this dependency.")
+                continue
+
             composerManifestData = self.loadJsonFile(os.path.join(dependency['metadata']['gitSource']['cachedPath'], "composer.json"))
 
             results = findWeakLinks(composerManifestData)
@@ -577,36 +728,46 @@ class SoftwareCompositionAnalysis:
             dependency = self.dependencies[dep]
             repoUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
 
+            if not repoUrl:
+                self.logger.warning(f"Warning: No repository URL found for dependency {dependency['name']}. Skipping repository statistics retrieval for this dependency.")
+                continue
+
             if "github" in repoUrl.lower():
                 gitPath = pathlib.Path(repoUrl)
                 gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}"
 
                 response = requests.get(
-                    f"https://api.github.com/search/issues?q=\"repo:{gitProjectSlug}+is:issue+is:closed\"", 
+                    f"https://api.github.com/search/issues?q=repo:{gitProjectSlug}+is:issue+is:closed", 
                     headers={
                         "Accept": "application/vnd.github+json",
-                        "X-GitHub-Api-Version": "2026-03-10"
+                        "X-GitHub-Api-Version": "2026-03-10",
+                        "Authorization": f"Bearer {os.getenv('GITHUB_API_BEARER_TOKEN')}"
                     }
                 )
                 totalClosed = response.json().get('total_count', 0)
+                self.logger.debug(totalClosed)
 
                 response = requests.get(
-                    f"https://api.github.com/search/issues?q=\"repo:{gitProjectSlug}+is:issue+is:open\"", 
+                    f"https://api.github.com/search/issues?q=repo:{gitProjectSlug}+is:issue+is:open", 
                     headers={
                         "Accept": "application/vnd.github+json",
-                        "X-GitHub-Api-Version": "2026-03-10"
+                        "X-GitHub-Api-Version": "2026-03-10",
+                        "Authorization": f"Bearer {os.getenv('GITHUB_API_BEARER_TOKEN')}"
                     }
                 )
                 totalOpen = response.json().get('total_count', 0)
+                self.logger.debug(totalOpen)
 
                 response = requests.get(
                     f"https://api.github.com/repos/{gitProjectSlug}/commits",
                     headers={
                         "Accept": "application/vnd.github+json",
-                        "X-GitHub-Api-Version": "2026-03-10"
+                        "X-GitHub-Api-Version": "2026-03-10",
+                        "Authorization": f"Bearer {os.getenv('GITHUB_API_BEARER_TOKEN')}"
                     }
                 )
                 commits = response.json()
+                self.logger.debug(commits)
 
                 mostRecentCommitDate = None
                 if isinstance(commits, list) and len(commits) > 0:
