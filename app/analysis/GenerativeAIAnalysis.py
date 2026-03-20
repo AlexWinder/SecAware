@@ -89,11 +89,12 @@ class GenerativeAIAnalysis:
             - The "line" field must contain the exact code snippet from the source code.
             - Do not output line numbers or offsets.
             - Confidence scores should be based on the evidence of their respective category. Confidence scores allow a human reviewer to understand how certain you are about the accuracy of your findings.
-               
+            
             Explicit guidelines:
             - Only report vulnerabilities directly supported by the provided code.
             - Do not invent lines, functions, SQL queries, or behaviour not present in the code.
             - If there is insufficient evidence, return an empty vulnerabilities array.
+            - When providing a fix, give instruction in plain English and either provide a valid code snippet or a clear but brief step-by-step instruction.
             - Strongly prefer no findings over a speculative finding.
             - Describe findings in plain English.
             - Map each vulnerability to applicable OWASP Top 10 categories if relevant and possible.
@@ -198,7 +199,7 @@ class GenerativeAIAnalysis:
             - Preserve all other fields exactly as submitted.
 
             Mapping rules:
-            - Use the authoritative OWASP Top 10 categories asn their allowed CWE IDs as the reference:
+            - Use the authoritative OWASP Top 10 categories as their allowed CWE IDs as the reference:
         """)
 
         for item in owaspTop10Context:
@@ -209,7 +210,7 @@ class GenerativeAIAnalysis:
             Instructions:
             - If any OWASP category or CWE ID does not match the authoritative mapping above, correct it.
             - If multiple categories are plausible, include all that are applicable.
-            - If no CWE or OWASP category applies, use null.
+            - If no CWE or OWASP category applies, use a best-guess approach.
             - Do not invent new vulnerabilities or change any other fields.
             - Return the output in the same JSON format as submitted, fully parseable by Python `json.loads()`.
         """)
