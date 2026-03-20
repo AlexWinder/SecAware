@@ -53,7 +53,7 @@ class SecAware:
 
     def __init__(
             self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash, scaAllowedSPDXLicenses=[], scaOverallCommitMinimumActivityDays=None,
-            scaAuthorCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None
+            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None
         ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
@@ -105,7 +105,7 @@ class SecAware:
                 gitProjectDirectoryPath=self.gitRepoLocalPath,
                 allowedSPDXLicenses=scaAllowedSPDXLicenses,
                 overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
-                authorCommitMinimumActivityDays=scaAuthorCommitMinimumActivityDays,
+                maintainerCommitMinimumActivityDays=scaMaintainerCommitMinimumActivityDays,
                 openToClosedIssueRatioThreshold=scaOpenToClosedIssueRadioThreshold,
                 minimumVersionAge=scaMinimumVersionAge,
                 gitProjectName= f"{gitPath.parent.name}/{gitPath.stem}",
@@ -466,7 +466,7 @@ if __name__ == '__main__':
     parser.add_argument('--git-commit-hash', type=str, default='b814ae1bc545187f924734c1f3ee0999153264ae', help='The specific Git commit hash to use for the scan.')
     parser.add_argument('--sca-allowed-spdx-licenses', nargs='+', default=[], help='(SCA) Allow-list of SPDX licenses for dependencies. See https://spdx.org/licenses/ for available license identifiers.')
     parser.add_argument('--sca-overall-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for general commit activity.')
-    parser.add_argument('--sca-author-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for author commit activity.')
+    parser.add_argument('--sca-maintainer-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for maintainer commit activity.')
     parser.add_argument('--sca-open-to-closed-issue-radio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
     parser.add_argument('--sca-minimum-version-age', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
 
@@ -479,7 +479,7 @@ if __name__ == '__main__':
         gitCommitHash=args.git_commit_hash,
         scaAllowedSPDXLicenses=args.sca_allowed_spdx_licenses,
         scaOverallCommitMinimumActivityDays=args.sca_overall_commit_minimum_activity_days,
-        scaAuthorCommitMinimumActivityDays=args.sca_author_commit_minimum_activity_days,
+        scaMaintainerCommitMinimumActivityDays=args.sca_maintainer_commit_minimum_activity_days,
         scaOpenToClosedIssueRadioThreshold=args.sca_open_to_closed_issue_radio_threshold,
         scaMinimumVersionAge=args.sca_minimum_version_age
     )
