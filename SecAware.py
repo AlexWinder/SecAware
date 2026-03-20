@@ -21,20 +21,6 @@ from app.utils.AIRestAPI import AIRestAPI
 from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
 
-def relativeToScriptAbsolutePath(relativePath):
-    return os.path.normpath(
-        os.path.join(os.path.dirname(__file__), relativePath)
-    )
-
-def dumpJson(data):
-    print(json.dumps(data, indent=2))
-
-def dumpJsonToFile(filename, data):
-    filename = pathlib.Path(relativeToScriptAbsolutePath(filename))
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-
 class SecAware:
     aiModel: str
     aiRestApiBaseUrl: str
@@ -59,9 +45,9 @@ class SecAware:
         ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
-        self.gitRepoLocalPath = relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
+        self.gitRepoLocalPath = SecAware.relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
 
-        self.reportPath = relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
+        self.reportPath = SecAware.relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
         self.configureLogging(logPath=f"{self.reportPath}/secaware.log")
         self.loggers = {
             'secAware': logging.getLogger('SecAware'),
@@ -105,7 +91,7 @@ class SecAware:
         try:
             self.componentSoftwareCompositionAnalysis = SoftwareCompositionAnalysis(
                 logger=self.loggers['softwareCompositionAnalysis'],
-                cacheDirectoryPath=relativeToScriptAbsolutePath("git-cache"),
+                cacheDirectoryPath=SecAware.relativeToScriptAbsolutePath("git-cache"),
                 gitProjectDirectoryPath=self.gitRepoLocalPath,
                 allowedSPDXLicenses=scaAllowedSPDXLicenses,
                 overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
@@ -117,7 +103,7 @@ class SecAware:
             )
             scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
             logger.info(f"Dumping SCA results to {scaJsonPath}.")
-            dumpJsonToFile(scaJsonPath, self.componentSoftwareCompositionAnalysis.dependencies)
+            SecAware.dumpJsonToFile(scaJsonPath, self.componentSoftwareCompositionAnalysis.dependencies)
             logger.debug(self.componentSoftwareCompositionAnalysis.dependencies)
 
             scaReportPath = f"{self.reportPath}/reportSCA.md"
@@ -134,7 +120,7 @@ class SecAware:
         self.componentStaticAnalysis = StaticAnalysis(self.gitRepoLocalPath, logger=self.loggers['staticAnalysis'])
         saJsonPath = f"{self.reportPath}/analysisFindingsSA.json"
         logger.info(f"Dumping Static Analysis results to {saJsonPath}.")
-        dumpJsonToFile(saJsonPath, self.componentStaticAnalysis.analysisFindings)
+        SecAware.dumpJsonToFile(saJsonPath, self.componentStaticAnalysis.analysisFindings)
         logger.debug(self.componentStaticAnalysis.analysisFindings)
 
         logger.info(ConsoleColour.toBlue("Generative AI Analysis"))
@@ -148,7 +134,7 @@ class SecAware:
             )
             aiJsonPath = f"{self.reportPath}/analysisFindingsGAIA.json"
             logger.info(f"Dumping Generative AI Analysis results to {aiJsonPath}.")
-            dumpJsonToFile(aiJsonPath, self.componentGenerativeAIAnalysis.findings)
+            SecAware.dumpJsonToFile(aiJsonPath, self.componentGenerativeAIAnalysis.findings)
             logger.debug(self.componentGenerativeAIAnalysis.findings)
         except GAIAModelNotAvailableError as e:
             logger.critical(ConsoleColour.toRed(str(e)))
@@ -157,7 +143,7 @@ class SecAware:
         self.combinedVulnerabilityFindings = self.combineRelevantFindings()
         combinedFindingsJsonPath = f"{self.reportPath}/analysisFindingsSAPlusGAIACombined.json"
         logger.info(f"Dumping combined vulnerability findings to {combinedFindingsJsonPath}.")
-        dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
+        SecAware.dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
         logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
         vulnerabilityReport = self.produceContextualisedReport()
@@ -483,6 +469,23 @@ class SecAware:
         self.loggers['secAware'].info("\n" + "\n".join(summary))
 
         return summary
+
+    @staticmethod
+    def relativeToScriptAbsolutePath(relativePath):
+        return os.path.normpath(
+            os.path.join(os.path.dirname(__file__), relativePath)
+        )
+
+    @staticmethod
+    def dumpJson(data):
+        print(json.dumps(data, indent=2))
+
+    @staticmethod
+    def dumpJsonToFile(filename, data):
+        filename = pathlib.Path(SecAware.relativeToScriptAbsolutePath(filename))
+        filename.parent.mkdir(parents=True, exist_ok=True)
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
 
 if __name__ == '__main__':
 
