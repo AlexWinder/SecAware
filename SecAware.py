@@ -152,22 +152,34 @@ class SecAware:
             logger.debug(self.componentGenerativeAIAnalysis.findings)
         except GAIAModelNotAvailableError as e:
             logger.critical(ConsoleColour.toRed(str(e)))
-            logger.critical(ConsoleColour.toRed("Skipping Generative AI Analysis due missing model."))
+            logger.critical(ConsoleColour.toRed("Skipping Generative AI Analysis due to missing model."))
 
         self.combinedVulnerabilityFindings = self.combineRelevantFindings()
-        combinedFindingsJsonPath = f"{self.reportPath}/analysisFindingsCombined.json"
+        combinedFindingsJsonPath = f"{self.reportPath}/analysisFindingsSAPlusGAIACombined.json"
         logger.info(f"Dumping combined vulnerability findings to {combinedFindingsJsonPath}.")
         dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
         logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
         vulnerabilityReport = self.produceContextualisedReport()
-        reportPath = f"{self.reportPath}/secawareVulnerabilityReport.md"
+        reportPath = f"{self.reportPath}/reportVulnerabilities.md"
         logger.info(f"Dumping vulnerability report to {reportPath}.")
         with open(reportPath, 'w', encoding='utf-8') as f:
             f.write(vulnerabilityReport)
         logger.debug(vulnerabilityReport)
 
-        self.executionSummary()
+        executionReport = self.produceExecutionReport()
+
+        # Produce the final report
+        with open(f"{self.reportPath}/SecAwareFindingsReport.md", 'w', encoding='utf-8') as f:
+            for line in executionReport:
+                f.write(line + "\n")
+
+            f.write(vulnerabilityReport + "\n\n")
+            
+            for line in self.componentSoftwareCompositionAnalysis.reportContents:
+                f.write(line + "\n")
+
+        logger.info(ConsoleColour.toGreen("SecAware analysis complete. Final report generated at " + f"{self.reportPath}/SecAwareFindingsReport.md"))
 
     def errorMessage(self, message):
         self.loggers['secAware'].critical(ConsoleColour.toRed(message))
@@ -397,11 +409,11 @@ class SecAware:
 
         responseJson = response.json()
         self.loggers['secAware'].debug(responseJson)
-        if 'choices' in responseJson:
+        if response.status_code == 200 and 'choices' in responseJson:
             return responseJson['choices'][0]['message']['content']
 
-    def executionSummary(self):
-        self.loggers['secAware'].debug("Execution Summary")
+    def produceExecutionReport(self):
+        self.loggers['secAware'].debug("Execution Report")
 
         summary = []
 
@@ -412,60 +424,65 @@ class SecAware:
             summary.append(f"**Warning: `{len(self.gitChangedFiles)}` files changed in this commit, which exceeds the warning threshold of `{self.warnIfFilesChangedExceedCount}`. Large changes are more likely to contain vulnerabilities, but may also produce more false positives, or be more difficult to analyse effectively.**")
             summary.append(f"")
 
-        summary.append(f"# Summary of Findings")
-        summary.append(f"- Git Repository: {self.gitRepoRemoteUrl}")
-        summary.append(f"- Git Commit: {self.gitCommitHash}")
-        summary.append(f"- Total Suitable Files Changed: {str(len(self.codeFilesForAnalysis))}")
-        summary.append(f"- AI Model: {self.aiModel}")
-        summary.append(f"- AI REST API Base URL: {self.aiRestApiBaseUrl}")
+        summary.append(f"# Summary of Execution")
         summary.append(f"- Generation Date: {datetime.datetime.now().isoformat()}")
-        summary.append(f"- Analysis Time: {time.perf_counter() - self.startTime:.2f} seconds")
+        summary.append(f"- Git Repository: `{self.gitRepoRemoteUrl}`")
+        summary.append(f"- Git Commit: `{self.gitCommitHash}`")
+        summary.append(f"- Total Suitable Files Changed: `{str(len(self.codeFilesForAnalysis))}`")
+        summary.append(f"- AI Model: `{self.aiModel}`")
+        summary.append(f"- AI REST API Base URL: `{self.aiRestApiBaseUrl}`")
+        summary.append(f"- Warning Threshold for Changed Files: `{self.warnIfFilesChangedExceedCount}` files")
+        summary.append(f"- Analysis Time: `{time.perf_counter() - self.startTime:.2f}` seconds")
         summary.append(f"")
 
-        summary.append(f"# Software Composition Analysis (SCA)")
+        summary.append(f"## Software Composition Analysis (SCA)")
         if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
-            summary.append(f"- Total Dependencies Detected: {str(len(self.componentSoftwareCompositionAnalysis.dependencies))}")
+            summary.append(f"- Total Dependencies Detected: `{str(len(self.componentSoftwareCompositionAnalysis.dependencies))}`")
             scaVulnerabilityCount = 0
+            scaWeakLinkCount = 0
             for depInfo in self.componentSoftwareCompositionAnalysis.dependencies.values():
                 vulnerabilities = depInfo.get('vulnerabilities', {})
+                weakLinks = depInfo.get('weakLinks', [])
                 scaVulnerabilityCount += len(vulnerabilities)
+                scaWeakLinkCount += len(weakLinks)
 
             simulated = self.componentSoftwareCompositionAnalysis.isSimulatedLockData
-            summary.append(f"- Total Dependency CVEs Detected: {str(scaVulnerabilityCount)}")
+            summary.append(f"- Total Dependency CVEs Detected: `{str(scaVulnerabilityCount)}`")
+            summary.append(f"- Total Dependency Weak Links Detected: `{str(scaWeakLinkCount)}`")
 
             if simulated:
-                summary.append(f"- **Notice! Simulated lock data used. CVE results are likely inaccurate.*")
+                summary.append(f"- **Notice! Simulated lock data used. CVE results are likely inaccurate.**")
 
             summary.append(f"- SCA Analysis Parameters:")
-            summary.append(f"   - Allowed SPDX Licenses: {', '.join(self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses']) if self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
-            summary.append(f"   - Overall Commit Minimum Activity Days: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['overallCommitMinimumActivityDays']}")
-            summary.append(f"   - Maintainer Commit Minimum Activity Days: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['maintainerCommitMinimumActivityDays']}")
-            summary.append(f"   - Open to Closed Issue Ratio Threshold: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['openToClosedIssueRatioThreshold']}")
-            summary.append(f"   - Minimum Version Age (days): {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['minimumVersionAge']}")
+            summary.append(f"   - Allowed SPDX Licenses: `{', '.join(self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses']) if self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}`")
+            summary.append(f"   - Overall Commit Minimum Activity Days: `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['overallCommitMinimumActivityDays']}`")
+            summary.append(f"   - Maintainer Commit Minimum Activity Days: `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['maintainerCommitMinimumActivityDays']}`")
+            summary.append(f"   - Open to Closed Issue Ratio Threshold: `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['openToClosedIssueRatioThreshold']}`")
+            summary.append(f"   - Minimum Version Age (days): `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['minimumVersionAge']}`")
         else:
             summary.append(f"- SCA not performed.")
         summary.append(f"")
 
-        summary.append(f"# Static Analysis")
+        summary.append(f"## Static Analysis")
         if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
-            summary.append(f"- Total Static Analysis Findings Detected: {str(len(self.componentStaticAnalysis.analysisFindings))}")
+            summary.append(f"- Total Static Analysis Findings Detected: `{str(len(self.componentStaticAnalysis.analysisFindings))}`")
         else:
             summary.append(f"- Static Analysis not performed.")
         summary.append(f"")
 
-        summary.append(f"# Generative AI Analysis")
+        summary.append(f"## Generative AI Analysis")
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
-            summary.append(f"- Total AI Analysis Vulnerabilities Detected: {str(aiVulnerabilityCount)}")
+            summary.append(f"- Total AI Analysis Vulnerabilities Detected: `{str(aiVulnerabilityCount)}`")
         else:
             summary.append(f"- Generative AI Analysis not performed.")
+        summary.append(f"")
         
         self.loggers['secAware'].info("\n" + "\n".join(summary))
 
-        with open(f"{self.reportPath}/secawareExecutionSummary.txt", 'w', encoding='utf-8') as f:
-            f.write("\n" + "\n".join(summary))
+        return summary
 
 if __name__ == '__main__':
 
