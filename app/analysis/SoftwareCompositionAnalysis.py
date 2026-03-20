@@ -211,8 +211,8 @@ class SoftwareCompositionAnalysis:
             reportLines.append(f"**Note: No lock file found. Simulated lock data generated from manifest. This provides estimated information only.**")
             reportLines.append(f"")
 
-        reportLines.append(f"**Git Repository URL: {self.gitProjectName}**")
-        reportLines.append(f"**Git Commit Hash Analyzed: {self.gitCommitHash}**")
+        reportLines.append(f"**Git Project Analysed: {self.gitProjectName}**")
+        reportLines.append(f"**Git Commit Hash Analysed: {self.gitCommitHash}**")
         reportLines.append(f"")
 
         reportLines.append(f"## Thresholds")
