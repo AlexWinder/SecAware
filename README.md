@@ -48,3 +48,13 @@ docker run -it --rm \
     secaware \
     sh -c "uv pip install --system -e . && ./SecAware.py"
 ```
+
+There are several options available when using SecAware, allowing you to customise its functionality to meet requirements. To see a full list of available options, pass in the `--help` flag where each will be listed with a brief description:
+
+```bash
+docker run -it --rm \
+    -v "$(pwd):/app" \
+    -w /app \
+    secaware \
+    sh -c "uv pip install --system -e . && ./SecAware.py --help"
+```
