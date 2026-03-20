@@ -29,7 +29,7 @@ class SoftwareCompositionAnalysis:
 
     def __init__(
             self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None, allowedSPDXLicenses=[], overallCommitMinimumActivityDays=None,
-            authorCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None, gitProjectName=None, gitCommitHash=None
+            maintainerCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None, gitProjectName=None, gitCommitHash=None
         ):
         self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
@@ -45,7 +45,7 @@ class SoftwareCompositionAnalysis:
         self.userDefinedThresholds = {
             'allowedSPDXLicenses': allowedSPDXLicenses,
             'overallCommitMinimumActivityDays': overallCommitMinimumActivityDays or 1,
-            'authorCommitMinimumActivityDays': authorCommitMinimumActivityDays or 1,
+            'maintainerCommitMinimumActivityDays': maintainerCommitMinimumActivityDays or 1,
             'openToClosedIssueRatioThreshold': openToClosedIssueRatioThreshold or 0.01,
             'minimumVersionAge': minimumVersionAge or 3650
         }
@@ -103,15 +103,15 @@ class SoftwareCompositionAnalysis:
                         'id': 'Overall Commit Activity Beyond Threshold',
                         'field': 'repositoryStatistics.overallRepositoryMostRecentCommitDate', 
                         'value': latestCommitDate,
-                        'message': f"Latest commit was {daysSinceLatestCommit} days ago, which is beyond the threshold of {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days."
+                        'message': f"Latest commit was `{daysSinceLatestCommit}` days ago, which is beyond the threshold of `{self.userDefinedThresholds['overallCommitMinimumActivityDays']}` days."
                     })
 
             # Flag if maintainer commit activity is below threshold
-            # We don't care about each individual author, we just want to make sure at least one of them is active
-            # Also, no data suggests that the author activity couldn't be found, so we want to consider that as being inactive
-            authorCommitDates = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('authorMostRecentCommitDate', {})
+            # We don't care about each individual maintainer, we just want to make sure at least one of them is active
+            # Also, no data suggests that the maintainer activity couldn't be found, so we want to consider that as being inactive
+            maintainerCommitDates = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('authorMostRecentCommitDate', {})
             mostRecentCommitDate = None
-            for author, commitDate in authorCommitDates.items():
+            for maintainer, commitDate in maintainerCommitDates.items():
                 # If we have a commit date to work with
                 if commitDate:
                     commitDateTime = datetime.datetime.fromisoformat(commitDate.replace("Z", "+00:00"))
@@ -119,23 +119,23 @@ class SoftwareCompositionAnalysis:
                     if mostRecentCommitDate is None or commitDateTime > mostRecentCommitDate:
                         mostRecentCommitDate = commitDateTime
                 else:
-                    # An author has no commit data, so we treat them as inactive
+                    # A maintainer has no commit data, so we treat them as inactive
                     mostRecentCommitDate = None
             if not mostRecentCommitDate:
                 self.dependencies[dep].setdefault('weakLinks', []).append({
-                    'id': 'No Recent Author Commit Activity',
+                    'id': 'No Recent Maintainer Commit Activity',
                     'field': 'repositoryStatistics.authorMostRecentCommitDate', 
-                    'value': authorCommitDates,
-                    'message': f"No recent commit activity found for any authors. This could indicate an unmaintained package."
+                    'value': maintainerCommitDates,
+                    'message': f"No recent commit activity found for any maintainers. This could indicate an unmaintained package."
                 })
             else:
                 daysSinceMostRecent = (datetime.datetime.now(datetime.timezone.utc) - mostRecentCommitDate).days
-                if daysSinceMostRecent > self.userDefinedThresholds['authorCommitMinimumActivityDays']:
+                if daysSinceMostRecent > self.userDefinedThresholds['maintainerCommitMinimumActivityDays']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
-                        'id': 'Author Commit Activity Beyond Threshold',
+                        'id': 'Maintainer Commit Activity Beyond Threshold',
                         'field': 'repositoryStatistics.authorMostRecentCommitDate', 
-                        'value': authorCommitDates,
-                        'message': f"Most recent commit by an author was {daysSinceMostRecent} days ago, which is beyond the threshold of {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days. This could indicate an unmaintained package."
+                        'value': maintainerCommitDates,
+                        'message': f"Most recent commit by a maintainer was `{daysSinceMostRecent}` days ago, which is beyond the threshold of `{self.userDefinedThresholds['maintainerCommitMinimumActivityDays']}` days. This could indicate an unmaintained package."
                     })
 
             openIssues = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('totalOpenIssues', 0)
@@ -148,7 +148,7 @@ class SoftwareCompositionAnalysis:
                         'id': 'Open to Closed Issue Ratio Beyond Threshold',
                         'field': 'repositoryStatistics.openToClosedIssueRatio', 
                         'value': openToClosedRatio,
-                        'message': f"Open to closed issue ratio is {openToClosedRatio:.2f}, which is above the threshold of {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}. Open issues: {openIssues}. Closed issues: {closedIssues}. This could indicate an unmaintained package or one with a high number of unresolved issues."
+                        'message': f"Open to closed issue ratio is `{openToClosedRatio:.2f}`, which is above the threshold of `{self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}`. Open issues: `{openIssues}`. Closed issues: `{closedIssues}`. This could indicate an unmaintained package or one with a high number of unresolved issues."
                     })
 
             # Check that a version being used isn't too new
@@ -163,7 +163,7 @@ class SoftwareCompositionAnalysis:
                         'id': 'Minimum Version Age Not Met',
                         'field': 'metadata.usedVersion.releaseTimestamp', 
                         'value': usedVersionTimestamp,
-                        'message': f"Used version `{usedVersionString}` was released {versionAgeInDays} days ago, which is below the minimum version age threshold of {self.userDefinedThresholds['minimumVersionAge']} days. Using very new versions can be risky as they may be prone to hijack."
+                        'message': f"Used version `{usedVersionString}` was released `{versionAgeInDays}` days ago, which is below the minimum version age threshold of `{self.userDefinedThresholds['minimumVersionAge']}` days. Using very new versions can be risky as they may be prone to hijack."
                     })
     
     def identifyPassiveWeakLinks(self):
@@ -194,7 +194,7 @@ class SoftwareCompositionAnalysis:
                         'id': 'Outdated Dependency Version',
                         'field': 'metadata.usedVersion.releaseTimestamp', 
                         'value': usedVersionTimestamp,
-                        'message': f"Used version `{usedVersionString}` is {daysBehindLatest} days behind the latest available version of `{latestAvailableVersionString}`. Using outdated versions can be risky as they may contain unpatched vulnerabilities."
+                        'message': f"Used version `{usedVersionString}` is `{daysBehindLatest}` days behind the latest available version of `{latestAvailableVersionString}`. Using outdated versions can be risky as they may contain unpatched vulnerabilities."
                     })
     
     def buildMarkdownReport(self):
@@ -219,7 +219,7 @@ class SoftwareCompositionAnalysis:
         reportLines.append(f"## Thresholds")
         reportLines.append(f"- Allowed SPDX Licenses: {', '.join(self.userDefinedThresholds['allowedSPDXLicenses']) if self.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
         reportLines.append(f"- Overall Commit Minimum Activity Days: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
-        reportLines.append(f"- Author Commit Minimum Activity Days: {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Maintainer Commit Minimum Activity Days: {self.userDefinedThresholds['maintainerCommitMinimumActivityDays']} days")
         reportLines.append(f"- Open to Closed Issue Ratio Threshold: {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}")
         reportLines.append(f"")
 
@@ -811,7 +811,7 @@ class SoftwareCompositionAnalysis:
                     if email and isinstance(email, str) and '@' in email:
                         emailList.append(email)
                 self.dependencies[dep]['metadata']['authors'] = emailList
-                self.logger.debug(f"Parsed authors for dependency {dependency['name']}: {emailList}")
+                self.logger.debug(f"Parsed maintainers for dependency {dependency['name']}: {emailList}")
 
     def scanMetadataForWeakLinksForAllDependencies(self):
         self.logger.info("Scanning metadata for weak links for all dependencies.")
@@ -885,7 +885,7 @@ class SoftwareCompositionAnalysis:
                                         'id': 'Inactive Maintainer Email Domain',
                                         'field': fullPath, 
                                         'value': email,
-                                        'message': f"Email address `{email}` for author '{author.get('name')}' may be inactive as the domain `{domain}` has no MX records. This could indicate an unmaintained package or potential for account takeover."
+                                        'message': f"Email address `{email}` for maintainer '{author.get('name')}' may be inactive as the domain `{domain}` has no MX records. This could indicate an unmaintained package or potential for account takeover."
                                     })
                     
                     # Recurse into nested dicts/lists
