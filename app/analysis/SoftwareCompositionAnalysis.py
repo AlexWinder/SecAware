@@ -86,9 +86,10 @@ class SoftwareCompositionAnalysis:
             for license in dependencyLicenses:
                 if license not in self.userDefinedThresholds['allowedSPDXLicenses']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Dependency License Disallowed',
                         'field': 'licenses', 
                         'value': license,
-                        'message': f"License '{license}' for dependency '{dependency['name']}' is not in SPDX license allow list."
+                        'message': f"License `{license}` is not in the SPDX license allow list."
                     })
 
             # Flag if overall commit activity is below threshold
@@ -99,9 +100,10 @@ class SoftwareCompositionAnalysis:
 
                 if daysSinceLatestCommit > self.userDefinedThresholds['overallCommitMinimumActivityDays']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Overall Commit Activity Beyond Threshold',
                         'field': 'repositoryStatistics.overallRepositoryMostRecentCommitDate', 
                         'value': latestCommitDate,
-                        'message': f"Latest commit for dependency '{dependency['name']}' was {daysSinceLatestCommit} days ago, which is beyond the threshold of {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days."
+                        'message': f"Latest commit was {daysSinceLatestCommit} days ago, which is beyond the threshold of {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days."
                     })
 
             # Flag if maintainer commit activity is below threshold
@@ -121,17 +123,19 @@ class SoftwareCompositionAnalysis:
                     mostRecentCommitDate = None
             if not mostRecentCommitDate:
                 self.dependencies[dep].setdefault('weakLinks', []).append({
+                    'id': 'No Recent Author Commit Activity',
                     'field': 'repositoryStatistics.authorMostRecentCommitDate', 
                     'value': authorCommitDates,
-                    'message': f"No recent commit activity found for any authors of dependency '{dependency['name']}'. This could indicate an unmaintained package."
+                    'message': f"No recent commit activity found for any authors. This could indicate an unmaintained package."
                 })
             else:
                 daysSinceMostRecent = (datetime.datetime.now(datetime.timezone.utc) - mostRecentCommitDate).days
                 if daysSinceMostRecent > self.userDefinedThresholds['authorCommitMinimumActivityDays']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Author Commit Activity Beyond Threshold',
                         'field': 'repositoryStatistics.authorMostRecentCommitDate', 
                         'value': authorCommitDates,
-                        'message': f"Most recent commit by an author for dependency '{dependency['name']}' was {daysSinceMostRecent} days ago, which is beyond the threshold of {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days. This could indicate an unmaintained package."
+                        'message': f"Most recent commit by an author was {daysSinceMostRecent} days ago, which is beyond the threshold of {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days. This could indicate an unmaintained package."
                     })
 
             openIssues = dependency.get('metadata', {}).get('repositoryStatistics', {}).get('totalOpenIssues', 0)
@@ -141,9 +145,10 @@ class SoftwareCompositionAnalysis:
                 openToClosedRatio = openIssues / closedIssues
                 if openToClosedRatio > self.userDefinedThresholds['openToClosedIssueRatioThreshold']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Open to Closed Issue Ratio Beyond Threshold',
                         'field': 'repositoryStatistics.openToClosedIssueRatio', 
                         'value': openToClosedRatio,
-                        'message': f"Open to closed issue ratio for dependency '{dependency['name']}' is {openToClosedRatio:.2f}, which is above the threshold of {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}. Open issues: {openIssues}. Closed issues: {closedIssues}. This could indicate an unmaintained package or one with a high number of unresolved issues."
+                        'message': f"Open to closed issue ratio is {openToClosedRatio:.2f}, which is above the threshold of {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}. Open issues: {openIssues}. Closed issues: {closedIssues}. This could indicate an unmaintained package or one with a high number of unresolved issues."
                     })
 
             # Check that a version being used isn't too new
@@ -155,9 +160,10 @@ class SoftwareCompositionAnalysis:
 
                 if versionAgeInDays < self.userDefinedThresholds['minimumVersionAge']:
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Minimum Version Age Not Met',
                         'field': 'metadata.usedVersion.releaseTimestamp', 
                         'value': usedVersionTimestamp,
-                        'message': f"Used version '{usedVersionString}' for dependency '{dependency['name']}' was released {versionAgeInDays} days ago, which is below the minimum version age threshold of {self.userDefinedThresholds['minimumVersionAge']} days. Using very new versions can be risky as they may be prone to hijack."
+                        'message': f"Used version `{usedVersionString}` was released {versionAgeInDays} days ago, which is below the minimum version age threshold of {self.userDefinedThresholds['minimumVersionAge']} days. Using very new versions can be risky as they may be prone to hijack."
                     })
     
     def identifyPassiveWeakLinks(self):
@@ -168,9 +174,10 @@ class SoftwareCompositionAnalysis:
             gitSourceUrl = dependency.get('metadata', {}).get('gitSource', {}).get('url')
             if not gitSourceUrl:
                 self.dependencies[dep].setdefault('weakLinks', []).append({
+                    'id': 'No Git Source URL',
                     'field': 'metadata.gitSource.url', 
                     'value': gitSourceUrl,
-                    'message': f"No source URL found for dependency '{dependency['name']}'. This could make it difficult to verify the legitimacy of the package and track any potential vulnerabilities or issues."
+                    'message': f"No source URL found. This could make it difficult to verify the legitimacy of the package and track any potential vulnerabilities or issues."
                 })
 
             # Determine if the dependency is using the latest available version
@@ -184,9 +191,10 @@ class SoftwareCompositionAnalysis:
                 if usedVersionDateTime < latestAvailableVersionDateTime:
                     daysBehindLatest = (latestAvailableVersionDateTime - usedVersionDateTime).days
                     self.dependencies[dep].setdefault('weakLinks', []).append({
+                        'id': 'Outdated Dependency Version',
                         'field': 'metadata.usedVersion.releaseTimestamp', 
                         'value': usedVersionTimestamp,
-                        'message': f"Used version ({usedVersionString}) for dependency '{dependency['name']}' is {daysBehindLatest} days behind the latest available version ({latestAvailableVersionString}). Using outdated versions can be risky as they may contain unpatched vulnerabilities."
+                        'message': f"Used version `{usedVersionString}` is {daysBehindLatest} days behind the latest available version of `{latestAvailableVersionString}`. Using outdated versions can be risky as they may contain unpatched vulnerabilities."
                     })
     
     def buildMarkdownReport(self):
@@ -267,6 +275,20 @@ class SoftwareCompositionAnalysis:
         reportLines.append(f"   - Weak Link Count Median: {statistics.median(weakLinksCounts)}")
         reportLines.append(f"   - Weak Link Count Mode(s): {statistics.multimode(weakLinksCounts)}")
         reportLines.append(f"   - Range of Weak Link Counts: {max(weakLinksCounts) - min(weakLinksCounts)}")
+        reportLines.append(f"   - Total Weak Links Per Category:")
+
+        weakLinksByCategory = {}
+        for dep in self.dependencies:
+            for weakLink in self.dependencies[dep].get('weakLinks', []):
+                category = weakLink.get('id', 'uncategorized')
+                weakLinksByCategory[category] = weakLinksByCategory.get(category, 0) + 1
+
+        # Order by alphabetical order
+        weakLinksByCategory = dict(sorted(weakLinksByCategory.items()))
+
+        for category, count in weakLinksByCategory.items():
+            reportLines.append(f"      - {category}: {count}")
+
         reportLines.append(f"")
 
         reportLines.append(f"## Dependency Findings")
@@ -278,7 +300,9 @@ class SoftwareCompositionAnalysis:
             weakLinks = dependency.get('weakLinks', [])
 
             reportLines.append(f"### {dependency['name']}")
-            reportLines.append(f"- Version: {dependency['version']}")
+            reportLines.append(f"- Version: `{dependency['version']}`")
+            licenses = dependency.get('metadata', {}).get('licenses', [])
+            reportLines.append(f"- License(s): `{', '.join(licenses) if licenses else 'None'}`")
             dependencyType = 'Direct' if dep in firstLevelDependencies else 'Transitive'
             reportLines.append(f"- Dependency Type: {dependencyType}")
             if dependencyType == 'Transitive':
@@ -832,17 +856,19 @@ class SoftwareCompositionAnalysis:
                     # Detect weak HTTP links
                     if isinstance(value, str) and value.lower().startswith("http://"):
                         results.append({
+                            'id': 'Insecure HTTP URL',
                             'field': fullPath, 
                             'value': value,
-                            'message': f"Found non-HTTPS URL in field '{fullPath}': '{value}'. Prone to man-in-the-middle attack."
+                            'message': f"Found non-HTTPS URL in field `{fullPath}`: `{value}`. Prone to man-in-the-middle attack."
                         })
                     
                     # Detect script keys - https://getcomposer.org/doc/articles/scripts.md
                     if key.lower() in scriptKeys:
                         results.append({
+                            'id': 'Composer File Contains Script Execution',
                             'field': fullPath, 
                             'value': value,
-                            'message': f"Found Composer script keyword '{key}': '{value}'. These scripts can execute arbitrary code and pose a security risk."
+                            'message': f"Found Composer script keyword `{key}`: `{value}`. These scripts can execute arbitrary code and pose a security risk."
                         })
 
                     # Detect inactive maintainer email address
@@ -856,9 +882,10 @@ class SoftwareCompositionAnalysis:
                                 mxRecords = self.checkMxRecordExistsForDomain(domain)
                                 if not mxRecords:
                                     results.append({
+                                        'id': 'Inactive Maintainer Email Domain',
                                         'field': fullPath, 
                                         'value': email,
-                                        'message': f"Email address '{email}' for author '{author.get('name')}' may be inactive as the domain '{domain}' has no MX records. This could indicate an unmaintained package or potential for account takeover."
+                                        'message': f"Email address `{email}` for author '{author.get('name')}' may be inactive as the domain `{domain}` has no MX records. This could indicate an unmaintained package or potential for account takeover."
                                     })
                     
                     # Recurse into nested dicts/lists
