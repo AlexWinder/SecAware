@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import cvss
 import datetime
 import dns.resolver
 import json
@@ -19,6 +20,7 @@ class SoftwareCompositionAnalysis:
     isSimulatedLockData: bool
     rawLockData: dict
     rawManifestData: dict
+    reportContents: list
     userDefinedThresholds: dict
     versionLookup: dict
 
@@ -34,6 +36,7 @@ class SoftwareCompositionAnalysis:
         self.logger = logger
         self.rawLockData = {}
         self.rawManifestData = {}
+        self.reportContents = []
         self.userDefinedThresholds = {
             'allowedSPDXLicenses': allowedSPDXLicenses,
             'overallCommitMinimumActivityDays': overallCommitMinimumActivityDays or 1,
@@ -170,18 +173,111 @@ class SoftwareCompositionAnalysis:
             usedVersionTimestamp = dependency.get('metadata', {}).get('usedVersion', {}).get('releaseTimestamp')
             if latestAvailableVersionTimestamp and usedVersionTimestamp:
                 latestAvailableVersionDateTime = datetime.datetime.fromisoformat(latestAvailableVersionTimestamp.replace("Z", "+00:00"))
+                latestAvailableVersionString = dependency.get('metadata', {}).get('latestAvailableVersion', {}).get('version')
                 usedVersionDateTime = datetime.datetime.fromisoformat(usedVersionTimestamp.replace("Z", "+00:00"))
-
+                usedVersionString = dependency.get('metadata', {}).get('usedVersion', {}).get('version')
                 if usedVersionDateTime < latestAvailableVersionDateTime:
                     daysBehindLatest = (latestAvailableVersionDateTime - usedVersionDateTime).days
                     self.dependencies[dep].setdefault('weakLinks', []).append({
                         'field': 'metadata.usedVersion.releaseTimestamp', 
                         'value': usedVersionTimestamp,
-                        'message': f"Used version for dependency '{dependency['name']}' is {daysBehindLatest} days behind the latest available version. Using outdated versions can be risky as they may contain unpatched vulnerabilities."
+                        'message': f"Used version ({usedVersionString}) for dependency '{dependency['name']}' is {daysBehindLatest} days behind the latest available version ({latestAvailableVersionString}). Using outdated versions can be risky as they may contain unpatched vulnerabilities."
                     })
-
+    
     def buildMarkdownReport(self):
-        pass
+        reportLines = []
+        reportLines.append(f"# Software Composition Analysis (SCA) Report")
+        reportLines.append(f"")
+
+        if self.isSimulatedLockData:
+            reportLines.append(f"**Note: No lock file found. Simulated lock data generated from manifest. This provides estimated information only.**")
+            reportLines.append(f"")
+
+        reportLines.append(f"## Thresholds")
+        reportLines.append(f"- Allowed SPDX Licenses: {', '.join(self.userDefinedThresholds['allowedSPDXLicenses']) if self.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
+        reportLines.append(f"- Overall Commit Minimum Activity Days: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Author Commit Minimum Activity Days: {self.userDefinedThresholds['authorCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Open to Closed Issue Ratio Threshold: {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}")
+        reportLines.append(f"")
+
+        reportLines.append(f"## Summary")
+        reportLines.append(f"- Total Dependencies Detected: {len(self.dependencies)}")
+        totalVulnerabilities = sum(len(self.dependencies[dep]['vulnerabilities']) for dep in self.dependencies)
+        reportLines.append(f"- Total Known Vulnerabilities: {totalVulnerabilities}")
+        totalWeakLinks = sum(len(self.dependencies[dep].get('weakLinks', [])) for dep in self.dependencies)
+        reportLines.append(f"- Total Weak Links Detected: {totalWeakLinks}")
+        reportLines.append(f"")
+
+        reportLines.append(f"## Dependency Findings")
+        reportLines.append(f"")
+
+        firstLevelDependencies = (
+            set(self.getNestedDependencies().get('production', {})) |
+            set(self.getNestedDependencies().get('development', {}))
+        )
+
+        for dep in self.dependencies.keys():
+            dependency = self.dependencies[dep]
+
+            reportLines.append(f"### {dependency['name']}")
+            reportLines.append(f"- Version: {dependency['version']}")
+            dependencyType = 'Direct' if dep in firstLevelDependencies else 'Transitive'
+            reportLines.append(f"- Dependency Type: {dependencyType}")
+            if dependencyType == 'Transitive':
+                usages = self.findDependencyUsages(dep)
+                reportLines.append(f"- Dependency Paths:")
+                for usage in usages:
+                    reportLines.append(f"   - {' > '.join(usage)}")
+            reportLines.append(f"- Known Vulnerabilities: {len(dependency.get('vulnerabilities', {}))}")
+            reportLines.append(f"- Weak Links Detected: {len(dependency.get('weakLinks', []))}")
+            
+            reportLines.append(f"")
+
+            if dependency.get('vulnerabilities'):
+                reportLines.append(f"#### Known Vulnerabilities (CVEs)")
+                for vulnId, vulnData in dependency['vulnerabilities'].items():
+                    aliasesList = vulnData.get('aliases', [])
+                    aliases = ', '.join(aliasesList) if aliasesList else 'None'
+                    summary = vulnData.get('summary', 'No summary available.')
+                    published = vulnData.get('published', 'Unknown publish date')
+
+                    osvCategory = vulnData.get('severity', {}).get('OSV', None)
+                    cvssV3Metric = vulnData.get('severity', {}).get('CVSS_V3', None)
+                    cvssV4Metric = vulnData.get('severity', {}).get('CVSS_V4', None)
+                    cvssV3Score = None
+                    cvssV3Severity = None
+                    cvssV4Score = None
+                    cvssV4Severity = None
+                    
+                    if cvssV3Metric:
+                        cvssV3 = cvss.CVSS3(cvssV3Metric)
+                        cvssV3Score = cvssV3.scores()[0] # Only the base score is necessary
+                        cvssV3Severity = cvssV3.severities()[0] # Only the base severity is necessary
+                    if cvssV4Metric:
+                        cvssV4 = cvss.CVSS4(cvssV4Metric)
+                        cvssV4Score = cvssV4.scores()[0] # Only the base score is necessary
+                        cvssV4Severity = cvssV4.severities()[0] # Only the base severity is necessary
+                    scoreString = ""
+                    if osvCategory:
+                        scoreString += f"{osvCategory}"
+                    if cvssV3Score and cvssV3Severity:
+                        scoreString += f" | CVSS v3: {cvssV3Score} ({cvssV3Severity})"
+                    if cvssV4Score and cvssV4Severity:
+                        scoreString += f" | CVSS v4: {cvssV4Score} ({cvssV4Severity})"
+
+                    reportLines.append(f"- **{scoreString}** - {vulnId}")
+                    reportLines.append(f"   - Alias(es): {aliases}")
+                    reportLines.append(f"   - Summary: {summary}")
+                    reportLines.append(f"   - Published: {published}")
+                reportLines.append(f"")
+            
+            if dependency.get('weakLinks'):
+                reportLines.append(f"#### Weak Links")
+                for weakLink in dependency['weakLinks']:
+                    reportLines.append(f"- {weakLink['message']}")
+                reportLines.append(f"")
+
+        self.reportContents = reportLines
 
     def generatePackageUrl(self, packageName, packageVersion):
         return f"pkg:packagist/{packageName}@{packageVersion}"
@@ -292,7 +388,7 @@ class SoftwareCompositionAnalysis:
         for dependencyType in results.keys():
             rootDependencies = productionRootDependencies if dependencyType == "production" else developmentRootDependencies
             for dependency in rootDependencies:
-                if dependency.startswith(('php', 'ext-')): continue
+                if dependency == 'php' or dependency.startswith('ext-'): continue
                 version = self.versionLookup.get(dependency)
                 if version:
                     packageUrl = self.generatePackageUrl(dependency, version)
@@ -825,6 +921,33 @@ class SoftwareCompositionAnalysis:
                 continue
 
         return compatibleVersions
+
+    def findDependencyUsages(self, target):
+        usages = []
+        self.depthFirstSearchUp(target, [target], usages)
+        return usages
+
+    def depthFirstSearchUp(self, current, path, paths):
+        parents = self.buildReverseDependencyGraph().get(current, [])
+
+        # If no one depends on this, then its a root package
+        if not parents:
+            paths.append(list(reversed(path)))
+            return
+        for parent in parents:
+            if parent in path:
+                continue
+            self.depthFirstSearchUp(parent, path + [parent], paths)
+
+    def buildReverseDependencyGraph(self):
+        reverse = {}
+
+        for parent, children in self.dependencyGraph.items():
+            for child in children:
+                
+                reverse.setdefault(child, []).append(parent)
+        
+        return reverse
 
     def loadJsonFile(self, jsonPath):
         with open(jsonPath, 'r', encoding='utf-8') as f:
