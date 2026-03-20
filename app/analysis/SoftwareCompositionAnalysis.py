@@ -8,6 +8,7 @@ import os
 import pathlib
 import requests
 import semantic_version
+import statistics
 
 from app.utils.ConsoleColour import ConsoleColour
 from app.utils.GitHelper import GitHelper
@@ -16,7 +17,9 @@ class SoftwareCompositionAnalysis:
     cacheDirectoryPath: str
     dependencies: dict
     dependencyGraph: dict
+    gitCommitHash: str
     gitProjectDirectoryPath: str
+    gitProjectName: str
     isSimulatedLockData: bool
     rawLockData: dict
     rawManifestData: dict
@@ -26,12 +29,14 @@ class SoftwareCompositionAnalysis:
 
     def __init__(
             self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None, allowedSPDXLicenses=[], overallCommitMinimumActivityDays=None,
-            authorCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None
+            authorCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None, gitProjectName=None, gitCommitHash=None
         ):
         self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
         self.dependencyGraph = {}
-        self.gitProjectDirectoryPath = gitProjectDirectoryPath
+        self.gitCommitHash = gitCommitHash
+        self.gitProjectDirectoryPath = gitProjectDirectoryPath#
+        self.gitProjectName = gitProjectName
         self.isSimulatedLockData = False
         self.logger = logger
         self.rawLockData = {}
@@ -185,6 +190,11 @@ class SoftwareCompositionAnalysis:
                     })
     
     def buildMarkdownReport(self):
+        firstLevelDependencies = (
+            set(self.getNestedDependencies().get('production', {})) |
+            set(self.getNestedDependencies().get('development', {}))
+        )
+
         reportLines = []
         reportLines.append(f"# Software Composition Analysis (SCA) Report")
         reportLines.append(f"")
@@ -192,6 +202,11 @@ class SoftwareCompositionAnalysis:
         if self.isSimulatedLockData:
             reportLines.append(f"**Note: No lock file found. Simulated lock data generated from manifest. This provides estimated information only.**")
             reportLines.append(f"")
+
+        reportLines.append(f"**Generated on {datetime.datetime.now().isoformat()}**")
+        reportLines.append(f"**Git Repository URL: {self.gitProjectName}**")
+        reportLines.append(f"**Git Commit Hash Analyzed: {self.gitCommitHash}**")
+        reportLines.append(f"")
 
         reportLines.append(f"## Thresholds")
         reportLines.append(f"- Allowed SPDX Licenses: {', '.join(self.userDefinedThresholds['allowedSPDXLicenses']) if self.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
@@ -202,22 +217,65 @@ class SoftwareCompositionAnalysis:
 
         reportLines.append(f"## Summary")
         reportLines.append(f"- Total Dependencies Detected: {len(self.dependencies)}")
+        directDependenciesCount = len(firstLevelDependencies) if firstLevelDependencies else None
+        # Transitive dependencies are always total dependencies less direct dependencies
+        transitiveDependenciesCount = len(self.dependencies) - directDependenciesCount if directDependenciesCount is not None else None
+        reportLines.append(f"- Total Direct Dependencies: {directDependenciesCount if directDependenciesCount is not None else 'N/A'}")
+        reportLines.append(f"- Total Transitive Dependencies: {transitiveDependenciesCount if transitiveDependenciesCount is not None else 'N/A'}")
+
         totalVulnerabilities = sum(len(self.dependencies[dep]['vulnerabilities']) for dep in self.dependencies)
-        reportLines.append(f"- Total Known Vulnerabilities: {totalVulnerabilities}")
         totalWeakLinks = sum(len(self.dependencies[dep].get('weakLinks', [])) for dep in self.dependencies)
+
+        # Find which dependency has the most vulnerabilities
+        mostVulnerableDependencyIdentifiers = []
+        mostVulnerableDependencyCount = 0
+        vulnerabilitiesCounts = []
+        mostWeakLinkedDependencyIdentifiers = []
+        mostWeakLinkedDependencyCount = 0
+        weakLinksCounts = []
+
+        for dep in self.dependencies:
+            vulnCount = len(self.dependencies[dep]['vulnerabilities'])
+            vulnerabilitiesCounts.append(vulnCount)
+            weakLinks_count = len(self.dependencies[dep].get('weakLinks', []))
+            weakLinksCounts.append(weakLinks_count)
+
+            if vulnCount > mostVulnerableDependencyCount:
+                mostVulnerableDependencyCount = vulnCount
+                mostVulnerableDependencyIdentifiers.append(dep)
+
+            if weakLinks_count > mostWeakLinkedDependencyCount:
+                mostWeakLinkedDependencyCount = weakLinks_count
+                mostWeakLinkedDependencyIdentifiers.append(dep)
+
+        reportLines.append(f"- Total Known Vulnerabilities (CVEs): {totalVulnerabilities}")
+        if mostVulnerableDependencyIdentifiers:
+            reportLines.append(f"   - Dependencies with Most CVEs: {mostVulnerableDependencyIdentifiers}.")
+        reportLines.append(f"   - CVE Count Maximum: {max(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Minimum: {min(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Mean/Average: {statistics.mean(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Median: {statistics.median(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Mode(s): {statistics.multimode(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - Range of CVE Counts: {max(vulnerabilitiesCounts) - min(vulnerabilitiesCounts)}")
+        
         reportLines.append(f"- Total Weak Links Detected: {totalWeakLinks}")
+        if mostWeakLinkedDependencyIdentifiers:
+            reportLines.append(f"   - Dependencies with Most Weak Links: {mostWeakLinkedDependencyIdentifiers}.")
+        reportLines.append(f"   - Weak Link Count Maximum: {max(weakLinksCounts)}")
+        reportLines.append(f"   - Weak Link Count Minimum: {min(weakLinksCounts)}")
+        reportLines.append(f"   - Weak Link Count Mean/Average: {statistics.mean(weakLinksCounts)}")
+        reportLines.append(f"   - Weak Link Count Median: {statistics.median(weakLinksCounts)}")
+        reportLines.append(f"   - Weak Link Count Mode(s): {statistics.multimode(weakLinksCounts)}")
+        reportLines.append(f"   - Range of Weak Link Counts: {max(weakLinksCounts) - min(weakLinksCounts)}")
         reportLines.append(f"")
 
         reportLines.append(f"## Dependency Findings")
         reportLines.append(f"")
-
-        firstLevelDependencies = (
-            set(self.getNestedDependencies().get('production', {})) |
-            set(self.getNestedDependencies().get('development', {}))
-        )
-
         for dep in self.dependencies.keys():
             dependency = self.dependencies[dep]
+
+            vulnerabilities = dependency.get('vulnerabilities', {})
+            weakLinks = dependency.get('weakLinks', [])
 
             reportLines.append(f"### {dependency['name']}")
             reportLines.append(f"- Version: {dependency['version']}")
@@ -228,14 +286,13 @@ class SoftwareCompositionAnalysis:
                 reportLines.append(f"- Dependency Paths:")
                 for usage in usages:
                     reportLines.append(f"   - {' > '.join(usage)}")
-            reportLines.append(f"- Known Vulnerabilities: {len(dependency.get('vulnerabilities', {}))}")
-            reportLines.append(f"- Weak Links Detected: {len(dependency.get('weakLinks', []))}")
-            
+            reportLines.append(f"- Total Known Vulnerabilities (CVEs): {len(vulnerabilities)}")
+            reportLines.append(f"- Total Weak Links Detected: {len(weakLinks)}")
             reportLines.append(f"")
 
-            if dependency.get('vulnerabilities'):
+            if vulnerabilities:
                 reportLines.append(f"#### Known Vulnerabilities (CVEs)")
-                for vulnId, vulnData in dependency['vulnerabilities'].items():
+                for vulnId, vulnData in vulnerabilities.items():
                     aliasesList = vulnData.get('aliases', [])
                     aliases = ', '.join(aliasesList) if aliasesList else 'None'
                     summary = vulnData.get('summary', 'No summary available.')
@@ -277,9 +334,9 @@ class SoftwareCompositionAnalysis:
                     reportLines.append(f"   - References: {'; '.join(vulnData.get('references', [])) if vulnData.get('references') else 'None'}")
                 reportLines.append(f"")
             
-            if dependency.get('weakLinks'):
+            if weakLinks:
                 reportLines.append(f"#### Weak Links")
-                for weakLink in dependency['weakLinks']:
+                for weakLink in weakLinks:
                     reportLines.append(f"- {weakLink['message']}")
                 reportLines.append(f"")
 
