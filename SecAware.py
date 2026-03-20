@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 import dotenv
 import json
 import logging
@@ -50,10 +51,11 @@ class SecAware:
     loggers: dict
     reportPath: str
     startTime: str
+    warnIfFilesChangedExceedCount: int
 
     def __init__(
             self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash, scaAllowedSPDXLicenses=[], scaOverallCommitMinimumActivityDays=None,
-            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None
+            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None, warnIfFilesChangedExceedCount=None
         ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
@@ -77,12 +79,14 @@ class SecAware:
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
         self.startTime = time.perf_counter()
+        self.warnIfFilesChangedExceedCount = warnIfFilesChangedExceedCount
 
         logger.debug(f"AI Model: {self.aiModel}")
         logger.debug(f"AI REST API Base URL: {self.aiRestApiBaseUrl}")
         logger.debug(f"Git Repo URL: {self.gitRepoRemoteUrl}")
         logger.debug(f"Git Commit Hash: {self.gitCommitHash}")
         logger.debug(f"Start Time: {self.startTime}")
+        logger.debug(f"Warning Threshold for Files Changed: {self.warnIfFilesChangedExceedCount}")
 
         self.checkDotEnvFileExists()
         self.loadEnvironmentVariables()
@@ -115,6 +119,12 @@ class SecAware:
             logger.info(f"Dumping SCA results to {scaJsonPath}.")
             dumpJsonToFile(scaJsonPath, self.componentSoftwareCompositionAnalysis.dependencies)
             logger.debug(self.componentSoftwareCompositionAnalysis.dependencies)
+
+            scaReportPath = f"{self.reportPath}/reportSCA.md"
+            logger.info(f"Dumping SCA report to {scaReportPath}.")
+            with open(scaReportPath, 'w', encoding='utf-8') as f:
+                f.write("\n" + "\n".join(self.componentSoftwareCompositionAnalysis.reportContents))
+            logger.debug(self.componentSoftwareCompositionAnalysis.reportContents)
         except SCAMissingDependencyFilesError:
             logger.critical(ConsoleColour.toRed("Skipping SCA due to missing dependency files."))
         except SCAMissingDirectoryError:
@@ -150,12 +160,12 @@ class SecAware:
         dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
         logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
-        report = self.produceContextualisedReport()
+        vulnerabilityReport = self.produceContextualisedReport()
         reportPath = f"{self.reportPath}/secawareVulnerabilityReport.md"
         logger.info(f"Dumping vulnerability report to {reportPath}.")
         with open(reportPath, 'w', encoding='utf-8') as f:
-            f.write(report)
-        logger.debug(report)
+            f.write(vulnerabilityReport)
+        logger.debug(vulnerabilityReport)
 
         self.executionSummary()
 
@@ -395,51 +405,62 @@ class SecAware:
 
         summary = []
 
-        summary.append(f"Summary of Findings")
-        summary.append(f"├── Git Repository: {self.gitRepoRemoteUrl}")
-        summary.append(f"├── Git Commit: {self.gitCommitHash}")
-        summary.append(f"├── Total Suitable Files Changed: {str(len(self.codeFilesForAnalysis))}")
-        summary.append(f"├── AI Model: {self.aiModel}")
-        summary.append(f"├── AI REST API Base URL: {self.aiRestApiBaseUrl}")
-        summary.append(f"└── Analysis Time: {time.perf_counter() - self.startTime:.2f} seconds")
+        summary.append(f"# SecAware Analysis Report")
         summary.append(f"")
 
-        summary.append(f"Software Composition Analysis (SCA)")
+        if len(self.gitChangedFiles) > self.warnIfFilesChangedExceedCount:
+            summary.append(f"**Warning: `{len(self.gitChangedFiles)}` files changed in this commit, which exceeds the warning threshold of `{self.warnIfFilesChangedExceedCount}`. Large changes are more likely to contain vulnerabilities, but may also produce more false positives, or be more difficult to analyse effectively.**")
+            summary.append(f"")
+
+        summary.append(f"# Summary of Findings")
+        summary.append(f"- Git Repository: {self.gitRepoRemoteUrl}")
+        summary.append(f"- Git Commit: {self.gitCommitHash}")
+        summary.append(f"- Total Suitable Files Changed: {str(len(self.codeFilesForAnalysis))}")
+        summary.append(f"- AI Model: {self.aiModel}")
+        summary.append(f"- AI REST API Base URL: {self.aiRestApiBaseUrl}")
+        summary.append(f"- Generation Date: {datetime.datetime.now().isoformat()}")
+        summary.append(f"- Analysis Time: {time.perf_counter() - self.startTime:.2f} seconds")
+        summary.append(f"")
+
+        summary.append(f"# Software Composition Analysis (SCA)")
         if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
-            summary.append(f"├── Total Dependencies Detected: {str(len(self.componentSoftwareCompositionAnalysis.dependencies))}")
+            summary.append(f"- Total Dependencies Detected: {str(len(self.componentSoftwareCompositionAnalysis.dependencies))}")
             scaVulnerabilityCount = 0
             for depInfo in self.componentSoftwareCompositionAnalysis.dependencies.values():
                 vulnerabilities = depInfo.get('vulnerabilities', {})
                 scaVulnerabilityCount += len(vulnerabilities)
 
             simulated = self.componentSoftwareCompositionAnalysis.isSimulatedLockData
-            treeSymbol = "└── "
-            if simulated:
-                treeSymbol = "├── "
-            
-            summary.append(f"{treeSymbol}Total Dependency CVEs Detected: {str(scaVulnerabilityCount)}")
+            summary.append(f"- Total Dependency CVEs Detected: {str(scaVulnerabilityCount)}")
 
             if simulated:
-                summary.append(f"└── Notice! Simulated lock data used. CVE results are likely inaccurate.")
+                summary.append(f"- **Notice! Simulated lock data used. CVE results are likely inaccurate.*")
+
+            summary.append(f"- SCA Analysis Parameters:")
+            summary.append(f"   - Allowed SPDX Licenses: {', '.join(self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses']) if self.componentSoftwareCompositionAnalysis.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
+            summary.append(f"   - Overall Commit Minimum Activity Days: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['overallCommitMinimumActivityDays']}")
+            summary.append(f"   - Maintainer Commit Minimum Activity Days: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['maintainerCommitMinimumActivityDays']}")
+            summary.append(f"   - Open to Closed Issue Ratio Threshold: {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['openToClosedIssueRatioThreshold']}")
+            summary.append(f"   - Minimum Version Age (days): {self.componentSoftwareCompositionAnalysis.userDefinedThresholds['minimumVersionAge']}")
         else:
-            summary.append(f"└── SCA not performed.")
+            summary.append(f"- SCA not performed.")
         summary.append(f"")
 
-        summary.append(f"Static Analysis")
+        summary.append(f"# Static Analysis")
         if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
-            summary.append(f"└── Total Static Analysis Findings Detected: {str(len(self.componentStaticAnalysis.analysisFindings))}")
+            summary.append(f"- Total Static Analysis Findings Detected: {str(len(self.componentStaticAnalysis.analysisFindings))}")
         else:
-            summary.append(f"└── Static Analysis not performed.")
+            summary.append(f"- Static Analysis not performed.")
         summary.append(f"")
 
-        summary.append(f"Generative AI Analysis")
+        summary.append(f"# Generative AI Analysis")
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
-            summary.append(f"└── Total AI Analysis Vulnerabilities Detected: {str(aiVulnerabilityCount)}")
+            summary.append(f"- Total AI Analysis Vulnerabilities Detected: {str(aiVulnerabilityCount)}")
         else:
-            summary.append(f"└── Generative AI Analysis not performed.")
+            summary.append(f"- Generative AI Analysis not performed.")
         
         self.loggers['secAware'].info("\n" + "\n".join(summary))
 
@@ -469,6 +490,7 @@ if __name__ == '__main__':
     parser.add_argument('--sca-maintainer-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for maintainer commit activity.')
     parser.add_argument('--sca-open-to-closed-issue-radio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
     parser.add_argument('--sca-minimum-version-age', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
+    parser.add_argument('--warn-if-files-changed-exceed', type=int, default=1, help='Warning threshold for number of files changed in the commit. Large changes are more likely to contain vulnerabilities, but may also produce more false positives, or be more difficult to analyse effectively.')
 
     args = parser.parse_args()
 
@@ -481,5 +503,6 @@ if __name__ == '__main__':
         scaOverallCommitMinimumActivityDays=args.sca_overall_commit_minimum_activity_days,
         scaMaintainerCommitMinimumActivityDays=args.sca_maintainer_commit_minimum_activity_days,
         scaOpenToClosedIssueRadioThreshold=args.sca_open_to_closed_issue_radio_threshold,
-        scaMinimumVersionAge=args.sca_minimum_version_age
+        scaMinimumVersionAge=args.sca_minimum_version_age,
+        warnIfFilesChangedExceedCount=args.warn_if_files_changed_exceed
     )
