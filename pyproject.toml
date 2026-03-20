@@ -8,6 +8,7 @@ authors = [
     { name = "Alex Winder", email = "contact@alexwinder.com" }
 ]
 dependencies = [
+    "cvss==3.6",
     "dnspython==2.8.0",
     "GitPython==3.1.46",
     "python-dotenv==1.2.2",
