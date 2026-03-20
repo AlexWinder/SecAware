@@ -107,7 +107,9 @@ class SecAware:
                 overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
                 authorCommitMinimumActivityDays=scaAuthorCommitMinimumActivityDays,
                 openToClosedIssueRatioThreshold=scaOpenToClosedIssueRadioThreshold,
-                minimumVersionAge=scaMinimumVersionAge
+                minimumVersionAge=scaMinimumVersionAge,
+                gitProjectName= f"{gitPath.parent.name}/{gitPath.stem}",
+                gitCommitHash=gitCommitHash
             )
             scaJsonPath = f"{self.reportPath}/analysisFindingsSCA.json"
             logger.info(f"Dumping SCA results to {scaJsonPath}.")
