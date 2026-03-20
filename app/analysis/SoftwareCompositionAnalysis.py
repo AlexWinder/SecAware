@@ -240,6 +240,9 @@ class SoftwareCompositionAnalysis:
                     aliases = ', '.join(aliasesList) if aliasesList else 'None'
                     summary = vulnData.get('summary', 'No summary available.')
                     published = vulnData.get('published', 'Unknown publish date')
+                    details = (lambda t: t[:300].rstrip() + ('...' if len(t) > 300 else ''))(
+                        vulnData.get('details', 'No details available.').replace('\r', '').replace('\n', ' ')
+                    )
 
                     osvCategory = vulnData.get('severity', {}).get('OSV', None)
                     cvssV3Metric = vulnData.get('severity', {}).get('CVSS_V3', None)
@@ -265,10 +268,13 @@ class SoftwareCompositionAnalysis:
                     if cvssV4Score and cvssV4Severity:
                         scoreString += f" | CVSS v4: {cvssV4Score} ({cvssV4Severity})"
 
-                    reportLines.append(f"- **{scoreString}** - {vulnId}")
+                    reportLines.append(f"- **{scoreString} - {vulnId}**")
                     reportLines.append(f"   - Alias(es): {aliases}")
                     reportLines.append(f"   - Summary: {summary}")
+                    reportLines.append(f"   - Details: {details}")
+                    reportLines.append(f"   - CWE IDs: {', '.join(vulnData.get('cwe_ids', [])) if vulnData.get('cwe_ids') else 'None'}")
                     reportLines.append(f"   - Published: {published}")
+                    reportLines.append(f"   - References: {'; '.join(vulnData.get('references', [])) if vulnData.get('references') else 'None'}")
                 reportLines.append(f"")
             
             if dependency.get('weakLinks'):
@@ -516,13 +522,24 @@ class SoftwareCompositionAnalysis:
                     f"https://api.osv.dev/v1/vulns/{vuln}"
                 )
                 data = response.json()
+                self.logger.debug(data)
 
                 # Different severity types are returned in an array
                 severityMapFromResponse = {item['type']: item['score'] for item in data.get('severity', [])}
 
+                # Get the advisory reference
+                advisoryReferences = []
+                for reference in data.get('references', []):
+                    type = reference.get('type')
+                    url = reference.get('url')
+                    # https://ossf.github.io/osv-schema/
+                    if (type and url):
+                        advisoryReferences.append(url)
+
                 existingData = self.dependencies[dep]['vulnerabilities'].get(vuln, {})
                 additionalData = {
                     'summary': data.get('summary'),
+                    'details': data.get('details'),
                     'aliases': data.get('aliases', []),
                     'cwe_ids': data.get('database_specific', {}).get('cwe_ids', []),
                     'severity': {
@@ -530,6 +547,7 @@ class SoftwareCompositionAnalysis:
                         'CVSS_V3': severityMapFromResponse.get('CVSS_V3'),
                         'CVSS_V4': severityMapFromResponse.get('CVSS_V4'),
                     },
+                    'references': advisoryReferences,
                     'published': data.get('published'),
                 }
 
