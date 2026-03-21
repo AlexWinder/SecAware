@@ -323,6 +323,10 @@ class SecAware:
             - Merge duplicate findings referring to the same code snippet and vulnerability.
             - Resolve conflicts by prioritising the most strongly supported finding.
             - Reflect uncertainty through wording and risk score where appropriate.
+            
+            Additional Rules:
+            - Under no circumstances should you fabricate findings. Only report what is provided by the evidence.
+            - If there are no vulnerabilities at all, simply state that no vulnerabilities were found.
                                        
             OUTPUT FORMAT (STRICT MARKDOWN):
                                        
@@ -451,7 +455,15 @@ class SecAware:
 
         summary.append(f"## Static Analysis")
         if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
-            summary.append(f"- Total Static Analysis Findings Detected: `{str(len(self.componentStaticAnalysis.analysisFindings))}`")
+            relevantFindings = 0
+            for finding in self.componentStaticAnalysis.analysisFindings:
+                filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
+
+                # We only want to include findings for files that were in the commit diff
+                if filePath in self.gitChangedFiles:
+                    relevantFindings += 1
+
+            summary.append(f"- Total Static Analysis Findings Detected: `{str(relevantFindings)}`")
         else:
             summary.append(f"- Static Analysis not performed.")
         summary.append(f"")
