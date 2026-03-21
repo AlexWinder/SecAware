@@ -314,6 +314,10 @@ class SecAware:
         return aggregatedFindings
     
     def produceContextualisedReport(self):
+        # We need to have at least one vulnerability finding to produce a report
+        if not self.combinedVulnerabilityFindings:
+            return "# Vulnerability Report\n\nNo vulnerabilities were found in the analysis."
+        
         systemPrompt = textwrap.dedent("""\
             You are a cybersecurity analyst assistant, specialised in vulnerability assessment
                                        
