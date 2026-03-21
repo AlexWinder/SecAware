@@ -12,7 +12,7 @@ import sys
 import textwrap
 import time
 
-from app.analysis.GenerativeAIAnalysis import GenerativeAIAnalysis, GAIAModelNotAvailableError
+from app.analysis.GenerativeAIAnalysis import GenerativeAIAnalysis
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
 from app.analysis.StaticAnalysis import StaticAnalysis
 from app.cli.ArgparseCustomFormatter import ArgparseCustomFormatter
@@ -136,9 +136,9 @@ class SecAware:
             logger.info(f"Dumping Generative AI Analysis results to {aiJsonPath}.")
             SecAware.dumpJsonToFile(aiJsonPath, self.componentGenerativeAIAnalysis.findings)
             logger.debug(self.componentGenerativeAIAnalysis.findings)
-        except GAIAModelNotAvailableError as e:
+        except ConnectionError as e:
             logger.critical(ConsoleColour.toRed(str(e)))
-            logger.critical(ConsoleColour.toRed("Skipping Generative AI Analysis due to missing model."))
+            logger.critical(ConsoleColour.toRed("Skipping Generative AI Analysis due to connection error to AI API."))
 
         self.combinedVulnerabilityFindings = self.combineRelevantFindings()
         combinedFindingsJsonPath = f"{self.reportPath}/analysisFindingsSAPlusGAIACombined.json"

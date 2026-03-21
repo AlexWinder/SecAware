@@ -5,6 +5,7 @@ import os
 import re
 import requests
 import textwrap
+import time
 
 from app.data.OWASPContext import owaspTop10Context
 from app.utils.AIRestAPI import AIRestAPI
@@ -35,12 +36,10 @@ class GenerativeAIAnalysis:
     def checkApiAccessible(self):
         response = requests.get(f"{self.baseUrl}/v1/models")
 
-        for model in response.json().get('data', []):
-            if model.get('id') == self.model:
-                self.logger.info(f"Successfully connected to AI API {self.baseUrl} and found model {self.model}.")
-                return
-        
-        raise GAIAModelNotAvailableError(f"Model {self.model} not found in AI API response. Please ensure the model is correctly loaded in the API and try again.")
+        if response.status_code != 200:
+            raise ConnectionError(f"Failed to connect to AI API at {self.baseUrl}. Status code: {response.status_code}, Response: {response.text}")
+
+        return
 
     def vulnerabilityScanForFile(self, relativeFilePath):
         absoluteFilePath = os.path.join(self.directoryToScanPath, relativeFilePath)
@@ -53,9 +52,28 @@ class GenerativeAIAnalysis:
 
         # We scan several times because AI is non-deterministic
         scanRange = 3
+        maxRetries = 3
+        retryDelay = 2
         for i in range(scanRange):
             self.logger.info(f'Scanning {relativeFilePath} (iteration {i+1}/{scanRange}).')
-            findings = self.initialVulnerabilityScan(absoluteFilePath)
+
+            findings = []
+
+            for attempt in range(1, maxRetries + 1):
+                try:
+                    findings = self.initialVulnerabilityScan(absoluteFilePath)
+
+                    if findings is None:
+                        raise ValueError("Initial vulnerability scan returned None.")
+                    
+                    break
+                except (requests.RequestException, ValueError) as e:
+                    self.logger.warning(ConsoleColour.toRed(f"Attempt {attempt}/{maxRetries} failed for {relativeFilePath}: {str(e)}"))
+
+                    if attempt < maxRetries:
+                        time.sleep(retryDelay * attempt)
+                    else:
+                        self.logger.error(ConsoleColour.toRed(f"Max retries reached for {relativeFilePath}. Skipping this file."))
 
             for finding in findings:
                 self.findings[relativeFilePath]["vulnerabilities"].append(finding)
@@ -114,14 +132,16 @@ class GenerativeAIAnalysis:
             headers=AIRestAPI.buildRequestHeaders(),
             json=payload
         )
+        self.logger.debug(response.text)
 
-        responseJson = response.json()
-        self.logger.debug(responseJson)
-        if 'choices' in responseJson:
-            aiMessageContent = responseJson['choices'][0]['message']['content']
-            
-            cleanedResponse = self.cleanUpResponse(aiMessageContent)
-            return self.getVulnerabilitiesFromJsonResponse(cleanedResponse)
+        if response.status_code == 200:
+            responseJson = response.json()
+            self.logger.debug(responseJson)
+            if 'choices' in responseJson:
+                aiMessageContent = responseJson['choices'][0]['message']['content']
+                
+                cleanedResponse = self.cleanUpResponse(aiMessageContent)
+                return self.getVulnerabilitiesFromJsonResponse(cleanedResponse)
 
     def cleanUpResponse(self, response):
         # Tidy up the response by removing any markdown code blocks
@@ -245,6 +265,3 @@ class GenerativeAIAnalysis:
             self.logger.critical(ConsoleColour.toRed("Failed to decode JSON response from AI API."))
             self.logger.debug(jsonResponse)
             return []
-
-class GAIAModelNotAvailableError(Exception):
-    pass
