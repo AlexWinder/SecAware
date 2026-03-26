@@ -2,6 +2,8 @@
 
 SecAware is a context-aware vulnerability scanner that aggregates the findings of several security analysis tools to provide better insight into software risks.
 
+>Please note that SecAware currently only supports PHP applications.
+
 ## Pre-Requisites
 
 ### LLM Provider
@@ -19,6 +21,8 @@ LM Studio should be configured with the following:
 3. Ensure that you have downloaded the correct model to be used for analysis. SecAware has been built and tested against the [Google Gemma 3 model family](https://ai.google.dev/gemma/docs/core). More details available on [Hugging Face](https://huggingface.co/collections/google/googles-gemma-models-family).
 
 When you intend to use SecAware, you should ensure that the LM Studio server is running with the correct loaded.
+
+SecAware by default is configured to use LM Studio on the same host as you are executing from (`http://host.docker.internal:1234`). However, if you are using a remote LM Studio, or a different port, then you can set this with the `--ai-rest-base-url` flag.
 
 #### Inference Provider via Hugging Face
 
