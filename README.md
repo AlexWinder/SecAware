@@ -66,3 +66,56 @@ docker run -it --rm \
     secaware \
     sh -c "uv pip install --system -e . && ./SecAware.py --help"
 ```
+
+## Diagrams
+
+### SecAware Overview
+
+Below shows a top-level view of the process that SecAware follows when conducting its analysis and producing its report.
+
+```mermaid
+---
+title: SecAware Overview
+---
+stateDiagram-v2
+    state "Clone repository at Git reference for analysis" as cloneRepo
+    state "Identify suitable files for analysis" as identifyFiles
+
+    state "Execute software composition analysis" as executeSCA
+    state "Execute static analysis" as executeSA
+    state "Execute generative AI analysis" as executeGAIA
+
+    state "Combine relevant vulnerability findings" as identifyRelevantFindings
+    
+    state "Produce contextualised vulnerability report" as produceContextualisedReport
+    state "Produce execution summary report" as produceExecutionReport
+    state "Combine reports into final report" as finalReport
+
+    state analysisFork <<fork>>
+    state analysisJoin <<join>>
+
+    state combineJoin <<join>>
+
+    [*] --> cloneRepo
+    cloneRepo --> identifyFiles
+    identifyFiles --> analysisFork
+
+    analysisFork --> executeSCA
+    analysisFork --> executeSA
+    analysisFork --> executeGAIA
+
+    executeSA --> analysisJoin
+    executeGAIA --> analysisJoin
+
+    analysisJoin --> identifyRelevantFindings
+
+    identifyRelevantFindings --> combineJoin
+    executeSCA --> combineJoin
+
+    combineJoin --> produceContextualisedReport
+
+    produceContextualisedReport --> produceExecutionReport
+    produceExecutionReport --> finalReport
+
+    finalReport --> [*]
+```
