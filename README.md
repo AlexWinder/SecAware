@@ -81,7 +81,7 @@ stateDiagram-v2
     state "Clone repository at Git reference for analysis" as cloneRepo
     state "Identify suitable files for analysis" as identifyFiles
     state "Execute software composition analysis" as executeSCA
-    state "Execute static analysis" as executeSA
+    state "Execute static analysis (Psalm)" as executeSA
     state "Execute generative AI analysis" as executeGAIA
     state "Combine relevant vulnerability findings" as identifyRelevantFindings
     state "Produce contextualised vulnerability report" as produceContextualisedReport
@@ -177,4 +177,43 @@ stateDiagram-v2
 
     analysisJoin --> buildReport
     buildReport --> [*]
+```
+
+### Generative AI Analysis Overview
+
+Below shows an overview of the process that the generative AI component conducting its analysis.
+
+```mermaid
+---
+title: Generative AI Analysis Overview
+---
+stateDiagram-v2
+    state "Store list of files to scan for vulnerabilities" as storeList
+    state "Select next file for vulnerability scan" as selectNextFile
+    state "Conduct initial vulnerability scan for file" as initialScan
+    state "Aggregate all initial findings for file" as aggregateFindings
+    state "Review and assign correct OWASP/CWE findings for identified file vulnerabilities" as categoriseFindings
+
+    state ifInitialScanIteration <<choice>>
+    state ifVulnerabilitiesFound <<choice>>
+    state ifAllFilesScanned <<choice>>
+
+    [*] --> storeList
+
+    storeList --> selectNextFile
+
+    selectNextFile --> initialScan
+    initialScan --> ifInitialScanIteration
+
+    ifInitialScanIteration --> initialScan: File scanned fewer than 3 times
+    ifInitialScanIteration --> ifVulnerabilitiesFound: File scanned at least 3 times
+
+    ifVulnerabilitiesFound --> ifAllFilesScanned: No vulnerabilities found in the file
+    ifVulnerabilitiesFound --> aggregateFindings: Vulnerabilities found in the file
+
+    aggregateFindings --> categoriseFindings
+    categoriseFindings --> ifAllFilesScanned
+
+    ifAllFilesScanned --> selectNextFile: More files require scanning
+    ifAllFilesScanned --> [*]: All files scanned
 ```
