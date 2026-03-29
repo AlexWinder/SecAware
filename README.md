@@ -80,20 +80,16 @@ title: SecAware Overview
 stateDiagram-v2
     state "Clone repository at Git reference for analysis" as cloneRepo
     state "Identify suitable files for analysis" as identifyFiles
-
     state "Execute software composition analysis" as executeSCA
     state "Execute static analysis" as executeSA
     state "Execute generative AI analysis" as executeGAIA
-
     state "Combine relevant vulnerability findings" as identifyRelevantFindings
-    
     state "Produce contextualised vulnerability report" as produceContextualisedReport
     state "Produce execution summary report" as produceExecutionReport
     state "Combine reports into final report" as finalReport
 
     state analysisFork <<fork>>
     state analysisJoin <<join>>
-
     state combineJoin <<join>>
 
     [*] --> cloneRepo
@@ -118,4 +114,67 @@ stateDiagram-v2
     produceExecutionReport --> finalReport
 
     finalReport --> [*]
+```
+
+### Software Composition Analysis (SCA) Overview
+
+Below shows an overview of the process that the SCA component takes when conducting its analysis.
+
+```mermaid
+---
+title: Software Composition Analysis (SCA) Overview
+---
+stateDiagram-v2
+    state "Ingest manifest files (composer.json & composer.lock)" as ingestFiles
+    state "Build inventory from manifest files" as buildInventory
+    state "Build dependency graph from inventory" as buildDependencyGraph
+    state "Query Packagist API to get all possible versions for dependencies" as getAllVersions
+    state "Query Packagist API for metadata for each dependency version(s)" as getDependenciesMetadata
+    state "Download a local cached copy of each dependency" as cacheDependency
+    state "Parse composer.json metadata for each dependency" as parseDependenciesComposer
+    state "Get all known CVEs for each dependency" as cveTopLevel
+    state "Get more detail for each identified CVE" as cveExtraDetail
+    state "Identify weak links from metadata for each dependency" as weakLinkMetadata
+    state "Retrieve repository statistics for each dependency" as retrieveRepositoryStatistics
+    state "Identify weak links from repository statistics for each dependency" as weakLinkRepositoryStatistics
+    state "Identify passive weak links for each dependency" as weakLinkPassive
+    state "Build report" as buildReport
+
+    state ifGetPossibleVersions <<choice>>
+    state analysisFork <<fork>>
+    state weakLinkJoin <<join>>
+    state analysisJoin <<join>>
+
+    [*] --> ingestFiles
+    ingestFiles --> buildInventory
+    buildInventory --> buildDependencyGraph
+
+    buildDependencyGraph --> ifGetPossibleVersions
+
+    ifGetPossibleVersions --> getAllVersions: composer.lock missing
+    getAllVersions --> getDependenciesMetadata
+    ifGetPossibleVersions --> getDependenciesMetadata: composer.lock present
+
+    getDependenciesMetadata --> cacheDependency
+    cacheDependency --> parseDependenciesComposer
+
+    parseDependenciesComposer --> analysisFork
+
+    analysisFork --> cveTopLevel
+    cveTopLevel --> cveExtraDetail
+
+    analysisFork --> weakLinkMetadata
+    analysisFork --> retrieveRepositoryStatistics
+    retrieveRepositoryStatistics --> weakLinkRepositoryStatistics
+    analysisFork --> weakLinkPassive
+
+    weakLinkMetadata --> weakLinkJoin
+    weakLinkRepositoryStatistics --> weakLinkJoin
+    weakLinkPassive --> weakLinkJoin
+
+    weakLinkJoin --> analysisJoin
+    cveExtraDetail --> analysisJoin
+
+    analysisJoin --> buildReport
+    buildReport --> [*]
 ```
