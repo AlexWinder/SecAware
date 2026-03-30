@@ -2,6 +2,7 @@
 
 ## 0.1.1
 
+- Feature: Added architecture and state diagrams to `README`.
 - Fix: Improved documentation for Hugging Face in the `README`.
 - Fix: Improve handling within contextualised report where no vulnerabilities are found.
 - Fix: Improve handling of failures within the upstream generative AI API.
