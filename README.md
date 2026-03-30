@@ -69,6 +69,10 @@ docker run -it --rm \
 
 ## Diagrams
 
+### SecAware Architecture
+
+![image](docs/Architecture.png)
+
 ### SecAware State Diagram
 
 Below shows a top-level view of the process that SecAware follows when conducting its analysis and producing its report.
