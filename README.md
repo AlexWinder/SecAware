@@ -69,13 +69,13 @@ docker run -it --rm \
 
 ## Diagrams
 
-### SecAware Overview
+### SecAware State Diagram
 
 Below shows a top-level view of the process that SecAware follows when conducting its analysis and producing its report.
 
 ```mermaid
 ---
-title: SecAware Overview
+title: SecAware State Diagram
 ---
 stateDiagram-v2
     state "Clone repository at Git reference for analysis" as cloneRepo
@@ -116,13 +116,13 @@ stateDiagram-v2
     finalReport --> [*]
 ```
 
-### Software Composition Analysis (SCA) Overview
+### Software Composition Analysis (SCA) State Diagram
 
 Below shows an overview of the process that the SCA component takes when conducting its analysis.
 
 ```mermaid
 ---
-title: Software Composition Analysis (SCA) Overview
+title: Software Composition Analysis (SCA) State Diagram
 ---
 stateDiagram-v2
     state "Ingest manifest files (composer.json & composer.lock)" as ingestFiles
@@ -179,13 +179,13 @@ stateDiagram-v2
     buildReport --> [*]
 ```
 
-### Generative AI Analysis Overview
+### Generative AI Analysis State Diagram
 
 Below shows an overview of the process that the generative AI component conducting its analysis.
 
 ```mermaid
 ---
-title: Generative AI Analysis Overview
+title: Generative AI Analysis State Diagram
 ---
 stateDiagram-v2
     state "Store list of files to scan for vulnerabilities" as storeList
