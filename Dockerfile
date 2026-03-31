@@ -10,8 +10,8 @@ RUN echo "deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] htt
 RUN apt update
 
 # Install Psalm (https://psalm.dev/) and its dependencies
-ARG PHP_VERSION=8.5.3-2+0~20260213.10+debian12~1.gbp7df0df
-RUN apt install -y php8.5-cli=${PHP_VERSION} php8.5-xml=${PHP_VERSION} php8.5-mbstring=${PHP_VERSION}
+ARG PHP_VERSION=8.4.18-2+0~20260213.42+debian12~1.gbp3e97a0
+RUN apt install -y php8.4-cli=${PHP_VERSION} php8.4-xml=${PHP_VERSION} php8.4-mbstring=${PHP_VERSION}
 RUN wget https://github.com/vimeo/psalm/releases/download/6.15.1/psalm.phar -O /usr/local/bin/psalm
 RUN chmod +x /usr/local/bin/psalm
 
