@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 0.1.1
+## 0.1.1 - 2026-03-31
 
 - Feature: Added architecture and state diagrams to `README`.
 - Fix: Improved documentation for Hugging Face in the `README`.
