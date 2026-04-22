@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.1.2
+
+- Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
+- Fix: Removed hard-set of PHP `8.4.18` due to missing dependency. Instead install to latest `8.4`.
+
 ## 0.1.1 - 2026-03-31
 
 - Feature: Added architecture and state diagrams to `README`.
