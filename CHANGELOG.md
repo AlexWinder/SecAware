@@ -1,7 +1,8 @@
 # CHANGELOG
 
-## 0.1.2
+## Upcoming Changes
 
+- Feature: Added SecAware version into the report.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
 - Fix: Removed hard-set of PHP `8.4.18` due to missing dependency. Instead install to latest `8.4`.
 
