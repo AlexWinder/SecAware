@@ -11,6 +11,7 @@ import requests
 import sys
 import textwrap
 import time
+import tomllib
 
 from app.analysis.GenerativeAIAnalysis import GenerativeAIAnalysis
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
@@ -419,6 +420,7 @@ class SecAware:
             summary.append(f"")
 
         summary.append(f"# Summary of Execution")
+        summary.append(f"- SecAware Version: {self.loadPyProjectToml()['project']['version']}")
         summary.append(f"- Generation Date: {datetime.datetime.now().isoformat()}")
         summary.append(f"- Git Repository: `{self.gitRepoRemoteUrl}`")
         summary.append(f"- Git Commit: `{self.gitCommitHash}`")
@@ -502,6 +504,11 @@ class SecAware:
         filename.parent.mkdir(parents=True, exist_ok=True)
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+
+    @staticmethod
+    def loadPyProjectToml():
+        with(open(SecAware.relativeToScriptAbsolutePath("pyproject.toml"), 'rb')) as f:
+            return tomllib.load(f)
 
 if __name__ == '__main__':
 
