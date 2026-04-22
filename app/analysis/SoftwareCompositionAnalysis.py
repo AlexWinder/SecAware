@@ -244,47 +244,52 @@ class SoftwareCompositionAnalysis:
         for dep in self.dependencies:
             vulnCount = len(self.dependencies[dep]['vulnerabilities'])
             vulnerabilitiesCounts.append(vulnCount)
-            weakLinks_count = len(self.dependencies[dep].get('weakLinks', []))
-            weakLinksCounts.append(weakLinks_count)
+            linkCount = len(self.dependencies[dep].get('weakLinks', []))
+            weakLinksCounts.append(linkCount)
 
             if vulnCount > mostVulnerableDependencyCount:
                 mostVulnerableDependencyCount = vulnCount
                 mostVulnerableDependencyIdentifiers.append(dep)
 
-            if weakLinks_count > mostWeakLinkedDependencyCount:
-                mostWeakLinkedDependencyCount = weakLinks_count
+            if linkCount > mostWeakLinkedDependencyCount:
+                mostWeakLinkedDependencyCount = linkCount
                 mostWeakLinkedDependencyIdentifiers.append(dep)
+
+        self.logger.debug(f"Vulnerability counts for all dependencies: {vulnerabilitiesCounts}")
+        self.logger.debug(f"Weak link counts for all dependencies: {weakLinksCounts}")
 
         reportLines.append(f"- Total Known Vulnerabilities (CVEs): {totalVulnerabilities}")
         if mostVulnerableDependencyIdentifiers:
             reportLines.append(f"   - Dependencies with Most CVEs: {mostVulnerableDependencyIdentifiers}.")
-        reportLines.append(f"   - CVE Count Maximum: {max(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Minimum: {min(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Mean/Average: {statistics.mean(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Median: {statistics.median(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Mode(s): {statistics.multimode(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - Range of CVE Counts: {max(vulnerabilitiesCounts) - min(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Statistics:")
+        reportLines.append(f"      - Maximum Count: {max(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Minimum Count: {min(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Arithmetic Mean (Average): {statistics.mean(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Median: {statistics.median(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Mode(s): {statistics.multimode(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Range (Max-Min Difference): {max(vulnerabilitiesCounts) - min(vulnerabilitiesCounts)}")
+        reportLines.append(f"      - Standard Deviation (Measure of Spread): {statistics.stdev(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 1 else 'N/A'}")
         
         reportLines.append(f"- Total Weak Links Detected: {totalWeakLinks}")
         if mostWeakLinkedDependencyIdentifiers:
             reportLines.append(f"   - Dependencies with Most Weak Links: {mostWeakLinkedDependencyIdentifiers}.")
-        reportLines.append(f"   - Weak Link Count Maximum: {max(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Minimum: {min(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Mean/Average: {statistics.mean(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Median: {statistics.median(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Mode(s): {statistics.multimode(weakLinksCounts)}")
-        reportLines.append(f"   - Range of Weak Link Counts: {max(weakLinksCounts) - min(weakLinksCounts)}")
-        reportLines.append(f"   - Total Weak Links Per Category:")
+        reportLines.append(f"   - Weak Link Count Statistics:")
+        reportLines.append(f"      - Maximum Count: {max(weakLinksCounts)}")
+        reportLines.append(f"      - Minimum Count: {min(weakLinksCounts)}")
+        reportLines.append(f"      - Arithmetic Mean (Average): {statistics.mean(weakLinksCounts)}")
+        reportLines.append(f"      - Median: {statistics.median(weakLinksCounts)}")
+        reportLines.append(f"      - Mode(s): {statistics.multimode(weakLinksCounts)}")
+        reportLines.append(f"      - Range (Max-Min Difference): {max(weakLinksCounts) - min(weakLinksCounts)}")
+        reportLines.append(f"      - Standard Deviation (Measure of Spread): {statistics.stdev(weakLinksCounts) if len(weakLinksCounts) > 1 else 'N/A'}")
 
+        reportLines.append(f"   - Total Weak Links Per Category:")
         weakLinksByCategory = {}
         for dep in self.dependencies:
             for weakLink in self.dependencies[dep].get('weakLinks', []):
                 category = weakLink.get('id', 'uncategorized')
                 weakLinksByCategory[category] = weakLinksByCategory.get(category, 0) + 1
-
         # Order by alphabetical order
         weakLinksByCategory = dict(sorted(weakLinksByCategory.items()))
-
         for category, count in weakLinksByCategory.items():
             reportLines.append(f"      - {category}: {count}")
 
