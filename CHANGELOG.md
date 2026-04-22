@@ -3,6 +3,7 @@
 ## Upcoming Changes
 
 - Feature: Added SecAware version into the report.
+- Feature: Added support for `--scan-identifier` which, when populated, will be included in the final report to act as an identifier of a scan.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
 - Fix: Removed hard-set of PHP `8.4.18` due to missing dependency. Instead install to latest `8.4`.
 
