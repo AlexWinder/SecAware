@@ -334,6 +334,7 @@ class SecAware:
             - Merge duplicate findings referring to the same code snippet and vulnerability.
             - Resolve conflicts by prioritising the most strongly supported finding.
             - Reflect uncertainty through wording and risk score where appropriate.
+            - Generative AI findings with low confidence scores (less than 5) should be treated as less certain. However, if there is strong evidence in the static analysis for the same vulnerability, this should be prioritised even if the generative AI confidence is low.
             
             Additional Rules:
             - Under no circumstances should you fabricate findings. Only report what is provided by the evidence.
@@ -361,7 +362,7 @@ class SecAware:
             - Each finding must correspond to a unique issue.
                                        
             ## Glossary
-            Provide concise definitions for any technical terms used in the report.
+            Provide concise definitions for any technical terms used in the report. This should be brief and easily understandable for a non-technical stakeholder.
                                        
             CLASSIFICATION RULES:
             - Use the OWASP Top 10 categories and CWE mappings below as the authoritative source.

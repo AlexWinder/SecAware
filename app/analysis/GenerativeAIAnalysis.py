@@ -112,11 +112,12 @@ class GenerativeAIAnalysis:
             
             Explicit guidelines:
             - Only report vulnerabilities directly supported by the provided code.
+            - When producing results, attempt to provide them within the context of the provided code. The findings should be context-aware where possible, rather than generic or speculative.
             - Do not invent lines, functions, SQL queries, or behaviour not present in the code.
             - If there is insufficient evidence, return an empty vulnerabilities array.
-            - When providing a fix, give instruction in plain English and either provide a valid code snippet or a clear but brief step-by-step instruction.
+            - When providing a fix, give instruction in plain English and either provide a valid code snippet or a clear but brief and actionable step-by-step instruction.
             - Strongly prefer no findings over a speculative finding.
-            - Describe findings in plain English.
+            - Describe findings in plain English. Findings must be clear and easy to understand for a human reviewer.
             - Map each vulnerability to applicable OWASP Top 10 categories if relevant and possible.
             - Preserve all indentation and characters, without breaking JSON formatting rules.
             
@@ -177,7 +178,8 @@ class GenerativeAIAnalysis:
                 - Set `overall` confidence to the **average** of the duplicates.
             - When findings conflict (e.g., different descriptions for the same line), adjust confidence scores downward to reflect uncertainty.
             - Use the provided source code only as a reference to verify and consolidate the existing findings.
-            - When making adjustments, ensure that findings are in plain English.
+            - The provided code allows for context-aware consolidation. Where possible, use the context of the code to resolve ambiguities in the findings, but do not add new findings that are not already present in the input.
+            - When making adjustments, ensure that findings are in plain English. Findings must be clear and easy to understand for a human reviewer.
             - Preserve all indentation and characters, without breaking JSON formatting rules.
             - If the OWASP or CWE mapping is inconsistent, adjust accordingly where a majority is selected, or where there is a better fit for the code snippet and vulnerability.
                         
