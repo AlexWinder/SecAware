@@ -13,6 +13,7 @@ from app.utils.ConsoleColour import ConsoleColour
 
 class GenerativeAIAnalysis:
     baseUrl: str
+    contextWindowUsage: int
     directoryToScanPath: str
     filesToScan: list
     findings: dict
@@ -20,6 +21,7 @@ class GenerativeAIAnalysis:
 
     def __init__(self, baseUrl, model, directoryToScanPath, filesToScan, logger):
         self.baseUrl = baseUrl
+        self.contextWindowUsage = 0
         self.directoryToScanPath = directoryToScanPath
         self.filesToScan = filesToScan
         self.findings = {}
@@ -137,6 +139,11 @@ class GenerativeAIAnalysis:
         if response.status_code == 200:
             responseJson = response.json()
             self.logger.debug(responseJson)
+
+            if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+                self.contextWindowUsage += responseJson['usage']['total_tokens']
+                self.logger.debug(f"Context window usage after scanning {filePath}: {self.contextWindowUsage} tokens.")
+
             if 'choices' in responseJson:
                 aiMessageContent = responseJson['choices'][0]['message']['content']
                 
@@ -201,6 +208,11 @@ class GenerativeAIAnalysis:
 
         responseJson = response.json()
         self.logger.debug(responseJson)
+
+        if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+            self.contextWindowUsage += responseJson['usage']['total_tokens']
+            self.logger.debug(f"Context window usage after aggregating {filePath}: {self.contextWindowUsage} tokens.")
+
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
@@ -246,6 +258,11 @@ class GenerativeAIAnalysis:
 
         responseJson = response.json()
         self.logger.debug(responseJson)
+
+        if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+            self.contextWindowUsage += responseJson['usage']['total_tokens']
+            self.logger.debug(f"Context window usage after OWASP assignment {fileReference}: {self.contextWindowUsage} tokens.")
+
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             

@@ -30,6 +30,7 @@ class SecAware:
     componentGenerativeAIAnalysis: GenerativeAIAnalysis
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
     componentStaticAnalysis: StaticAnalysis
+    contextWindowUsage: int
     dependencyManagementFiles: list
     gitChangedFiles: list
     gitRepoLocalPath: str
@@ -65,6 +66,7 @@ class SecAware:
         
         self.aiModel = aiModel
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
+        self.contextWindowUsage = 0
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
         self.scanIdentifier = scanIdentifier
@@ -408,8 +410,13 @@ class SecAware:
 
         responseJson = response.json()
         self.loggers['secAware'].debug(responseJson)
-        if response.status_code == 200 and 'choices' in responseJson:
-            return responseJson['choices'][0]['message']['content']
+        if response.status_code == 200:
+            if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+                self.contextWindowUsage += responseJson['usage']['total_tokens']
+                self.loggers['secAware'].debug(f"Total context window usage after report generation: {self.contextWindowUsage} tokens.")
+
+            if 'choices' in responseJson:
+                return responseJson['choices'][0]['message']['content']
 
     def produceExecutionReport(self):
         self.loggers['secAware'].debug("Execution Report")
@@ -433,6 +440,16 @@ class SecAware:
         summary.append(f"- Total PHP Files Changed Within Commit: `{str(len(self.codeFilesForAnalysis))}`")
         summary.append(f"- AI Model: `{self.aiModel}`")
         summary.append(f"- AI REST API Base URL: `{self.aiRestApiBaseUrl}`")
+
+        totalContextWindowUsage = self.contextWindowUsage
+        gaiaContextWindowUsage = 0
+        if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            totalContextWindowUsage += self.componentGenerativeAIAnalysis.contextWindowUsage
+            gaiaContextWindowUsage = self.componentGenerativeAIAnalysis.contextWindowUsage
+        summary.append(f"- Total Token Usage: `{str(totalContextWindowUsage)}` tokens")
+        summary.append(f"   - SecAware Report: `{str(self.contextWindowUsage)}` tokens")
+        summary.append(f"   - Generative AI Analysis: `{str(gaiaContextWindowUsage)}` tokens")
+
         summary.append(f"- Warning Threshold for Changed Files: `{self.warnIfFilesChangedExceedCount}` files")
         summary.append(f"- Analysis Time: `{time.perf_counter() - self.startTime:.2f}` seconds")
         summary.append(f"")
@@ -482,6 +499,7 @@ class SecAware:
 
         summary.append(f"## Generative AI Analysis")
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            summary.append(f"- AI Analysis Context Window Usage: `{str(self.componentGenerativeAIAnalysis.contextWindowUsage)}` tokens")
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])

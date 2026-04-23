@@ -5,6 +5,7 @@
 - Feature: Added SecAware version into the report.
 - Feature: Added support for `--scan-identifier` which, when populated, will be included in the final report to act as an identifier of a scan.
 - Feature: Added standard deviation to output report of SCA component for CVEs and weak links.
+- Feature: Added AI token usage into reports.
 - Fix: Improved wording of statistical measurements in SCA component report.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
 - Fix: Removed hard-set of PHP `8.4.18` due to missing dependency. Instead install to latest `8.4`.
