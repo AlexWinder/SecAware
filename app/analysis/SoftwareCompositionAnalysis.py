@@ -29,7 +29,7 @@ class SoftwareCompositionAnalysis:
 
     def __init__(
             self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None, allowedSPDXLicenses=[], overallCommitMinimumActivityDays=None,
-            maintainerCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None, gitProjectName=None, gitCommitHash=None
+            maintainerCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAgeDays=None, gitProjectName=None, gitCommitHash=None
         ):
         self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
@@ -47,7 +47,7 @@ class SoftwareCompositionAnalysis:
             'overallCommitMinimumActivityDays': overallCommitMinimumActivityDays or 1,
             'maintainerCommitMinimumActivityDays': maintainerCommitMinimumActivityDays or 1,
             'openToClosedIssueRatioThreshold': openToClosedIssueRatioThreshold or 0.01,
-            'minimumVersionAge': minimumVersionAge or 3650
+            'minimumVersionAge': minimumVersionAgeDays or 3650
         }
         self.versionLookup = {}
 
