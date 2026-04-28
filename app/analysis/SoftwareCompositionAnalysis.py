@@ -217,9 +217,10 @@ class SoftwareCompositionAnalysis:
 
         reportLines.append(f"## Thresholds")
         reportLines.append(f"- Allowed SPDX Licenses: {', '.join(self.userDefinedThresholds['allowedSPDXLicenses']) if self.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
-        reportLines.append(f"- Overall Commit Minimum Activity Days: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
-        reportLines.append(f"- Maintainer Commit Minimum Activity Days: {self.userDefinedThresholds['maintainerCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Overall Commit Minimum Activity: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Maintainer Commit Minimum Activity: {self.userDefinedThresholds['maintainerCommitMinimumActivityDays']} days")
         reportLines.append(f"- Open to Closed Issue Ratio Threshold: {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}")
+        reportLines.append(f"- Minimum Dependency Version Age: {self.userDefinedThresholds['minimumVersionAge']} days")
         reportLines.append(f"")
 
         reportLines.append(f"## Summary")
