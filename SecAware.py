@@ -44,7 +44,7 @@ class SecAware:
 
     def __init__(
             self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash, scaAllowedSPDXLicenses=[], scaOverallCommitMinimumActivityDays=None,
-            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None, 
+            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRatioThreshold=None, scaMinimumVersionAge=None, 
             scanIdentifier=None, warnIfFilesChangedExceedCount=None
         ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
@@ -103,7 +103,7 @@ class SecAware:
                 allowedSPDXLicenses=scaAllowedSPDXLicenses,
                 overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
                 maintainerCommitMinimumActivityDays=scaMaintainerCommitMinimumActivityDays,
-                openToClosedIssueRatioThreshold=scaOpenToClosedIssueRadioThreshold,
+                openToClosedIssueRatioThreshold=scaOpenToClosedIssueRatioThreshold,
                 minimumVersionAge=scaMinimumVersionAge,
                 gitProjectName= f"{gitPath.parent.name}/{gitPath.stem}",
                 gitCommitHash=gitCommitHash
@@ -556,7 +556,7 @@ if __name__ == '__main__':
     parser.add_argument('--sca-allowed-spdx-licenses', nargs='+', default=[], help='(SCA) Allow-list of SPDX licenses for dependencies. See https://spdx.org/licenses/ for available license identifiers.')
     parser.add_argument('--sca-overall-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for general commit activity.')
     parser.add_argument('--sca-maintainer-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for maintainer commit activity.')
-    parser.add_argument('--sca-open-to-closed-issue-radio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
+    parser.add_argument('--sca-open-to-closed-issue-ratio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
     parser.add_argument('--sca-minimum-version-age', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
     parser.add_argument('--scan-identifier', type=str, help='Optional identifier for this scan, which will be included in the report.')
     parser.add_argument('--warn-if-files-changed-exceed', type=int, default=1, help='Warning threshold for number of files changed in the commit. Large changes are more likely to contain vulnerabilities, but may also produce more false positives, or be more difficult to analyse effectively.')
@@ -571,7 +571,7 @@ if __name__ == '__main__':
         scaAllowedSPDXLicenses=args.sca_allowed_spdx_licenses,
         scaOverallCommitMinimumActivityDays=args.sca_overall_commit_minimum_activity_days,
         scaMaintainerCommitMinimumActivityDays=args.sca_maintainer_commit_minimum_activity_days,
-        scaOpenToClosedIssueRadioThreshold=args.sca_open_to_closed_issue_radio_threshold,
+        scaOpenToClosedIssueRatioThreshold=args.sca_open_to_closed_issue_ratio_threshold,
         scaMinimumVersionAge=args.sca_minimum_version_age,
         scanIdentifier=args.scan_identifier,
         warnIfFilesChangedExceedCount=args.warn_if_files_changed_exceed
