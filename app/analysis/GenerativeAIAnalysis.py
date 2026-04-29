@@ -5,7 +5,6 @@ import os
 import re
 import requests
 import textwrap
-import time
 
 from app.data.OWASPContext import owaspTop10Context
 from app.utils.AIRestAPI import AIRestAPI
@@ -54,43 +53,37 @@ class GenerativeAIAnalysis:
 
         # We scan several times because AI is non-deterministic
         scanRange = 3
-        maxRetries = 3
-        retryDelay = 2
         for i in range(scanRange):
             self.logger.info(f'Scanning {relativeFilePath} (iteration {i+1}/{scanRange}).')
 
-            findings = []
-
-            for attempt in range(1, maxRetries + 1):
-                try:
-                    findings = self.initialVulnerabilityScan(absoluteFilePath)
-
-                    if findings is None:
-                        raise ValueError("Initial vulnerability scan returned None.")
-                    
-                    break
-                except (requests.RequestException, ValueError) as e:
-                    self.logger.warning(ConsoleColour.toRed(f"Attempt {attempt}/{maxRetries} failed for {relativeFilePath}: {str(e)}"))
-
-                    if attempt < maxRetries:
-                        time.sleep(retryDelay * attempt)
-                    else:
-                        self.logger.error(ConsoleColour.toRed(f"Max retries reached for {relativeFilePath}. Skipping this file."))
+            findings = AIRestAPI.executeWithRetries(
+                operationName=f"Initial scan for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.initialVulnerabilityScan(absoluteFilePath),
+            )
 
             for finding in findings:
                 self.findings[relativeFilePath]["vulnerabilities"].append(finding)
 
         if len(self.findings[relativeFilePath]["vulnerabilities"]) > 0:
             self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
-            aggregated = self.aggregateInitialFindings(
-                fileReference=relativeFilePath, 
-                filePath=absoluteFilePath
+            aggregated = AIRestAPI.executeWithRetries(
+                operationName=f"Aggregation for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.aggregateInitialFindings(
+                    fileReference=relativeFilePath,
+                    filePath=absoluteFilePath
+                )
             )
             self.findings[relativeFilePath]["vulnerabilities"] = aggregated
 
             self.logger.info(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}.")
-            corrected = self.assignCorrectCWEOWASPCategories(
-                fileReference=relativeFilePath
+            corrected = AIRestAPI.executeWithRetries(
+                operationName=f"OWASP/CWE assignment for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.assignCorrectCWEOWASPCategories(
+                    fileReference=relativeFilePath
+                )
             )
             self.findings[relativeFilePath]["vulnerabilities"] = corrected
         else:

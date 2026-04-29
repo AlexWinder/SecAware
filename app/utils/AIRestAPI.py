@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
+import json
 import os
+import requests
+import time
+
+from app.utils.ConsoleColour import ConsoleColour
 
 class AIRestAPI:
     @staticmethod
@@ -139,3 +144,36 @@ class AIRestAPI:
         }
 
         return payload
+    
+    @staticmethod
+    def executeWithRetries(operationName, function, logger, maxRetries=20, retryDelay=2):
+        for attempt in range(1, maxRetries + 1):
+            try:
+                result = function()
+
+                if result is None:
+                    raise ValueError(f"{operationName} returned None.")
+                
+                return result
+
+            except (
+                requests.RequestException, 
+                requests.exceptions.JSONDecodeError,
+                ValueError, 
+                json.JSONDecodeError
+            ) as e:
+                logger.warning(
+                    ConsoleColour.toRed(
+                        f"Attempt {attempt}/{maxRetries} failed for {operationName}: {str(e)}"
+                    )
+                )
+
+                if attempt < maxRetries:
+                    time.sleep(retryDelay * attempt)
+                else:
+                    logger.error(
+                        ConsoleColour.toRed(
+                            f"Max retries reached for {operationName}. Skipping this operation."
+                        )
+                    )
+                    return []

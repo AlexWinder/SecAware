@@ -153,7 +153,11 @@ class SecAware:
         SecAware.dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
         logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
-        vulnerabilityReport = self.produceContextualisedReport()
+        vulnerabilityReport = AIRestAPI.executeWithRetries(
+                operationName=f"Producing contextualised vulnerability report",
+                logger=self.loggers['secAware'],
+                function=lambda: self.produceContextualisedReport()
+            )
         reportPath = f"{self.reportPath}/reportVulnerabilities.md"
         logger.info(f"Dumping vulnerability report to {reportPath}.")
         with open(reportPath, 'w', encoding='utf-8') as f:
