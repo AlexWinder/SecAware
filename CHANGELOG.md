@@ -7,6 +7,7 @@
 - Feature: Added standard deviation to output report of SCA component for CVEs and weak links.
 - Feature: Added AI token usage into reports.
 - Feature: Added missing minimum dependency version age from SCA report.
+- Fix: Improved error handling from AI API provider.
 - Fix: Improved wording of statistical measurements in SCA component report.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
 - Fix: Removed hard-set of PHP `8.4.18` due to missing dependency. Instead install to latest `8.4`.
