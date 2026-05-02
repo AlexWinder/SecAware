@@ -126,7 +126,8 @@ class GenerativeAIAnalysis:
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions", 
             headers=AIRestAPI.buildRequestHeaders(),
-            json=payload
+            json=payload,
+            timeout=60
         )
         self.logger.debug(response.text)
 
