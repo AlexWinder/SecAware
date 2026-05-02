@@ -39,6 +39,14 @@ class GitHelper:
     @staticmethod
     def diffFiles(repoPath, commitHash):
         repo = git.Repo(repoPath)
-        diff = repo.git.diff(f"{commitHash}~1", commitHash, name_only=True)
+        commit = repo.commit(commitHash)
+
+        if not commit.parents:
+            # If we have no commit parents, then this is the initial commit
+            emptyTreeHash = repo.git.hash_object("-t", "tree", "/dev/null")
+            diff = repo.git.diff(emptyTreeHash, commitHash, name_only=True)
+        else:
+            diff = repo.git.diff(f"{commitHash}~1", commitHash, name_only=True)
+
         changedFiles = diff.splitlines()
         return changedFiles

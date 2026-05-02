@@ -9,6 +9,7 @@
 - Feature: Added missing minimum dependency version age from SCA report.
 - Feature: Added `60` second timeout when calling the generative AI API.
 - Feature: Repeat failed calls for all requests to the AI API, rather than just vulnerability scanning.
+- Fix: Project is not cloned if there is no parent commit beyond the provided git reference.
 - Fix: SecAware report not generated if SCA is not executed (such as missing `composer.json`).
 - Fix: Improved error handling from AI API provider.
 - Fix: Improved wording of statistical measurements in SCA component report.
