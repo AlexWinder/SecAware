@@ -177,7 +177,7 @@ class SecAware:
                 for line in self.componentSoftwareCompositionAnalysis.reportContents:
                     f.write(line + "\n")
             else:
-                f.write("# Software Composition Analysis (SCA)\n\nSCA not performed.\n")
+                f.write("# Software Composition Analysis (SCA)\n\n**SCA not performed.**\n")
 
 
         logger.info(ConsoleColour.toGreen("SecAware analysis complete. Final report generated at " + f"{self.reportPath}/SecAwareFindingsReport.md"))
@@ -488,11 +488,11 @@ class SecAware:
             summary.append(f"   - Open to Closed Issue Ratio Threshold: `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['openToClosedIssueRatioThreshold']}`")
             summary.append(f"   - Minimum Version Age (days): `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['minimumVersionAge']}`")
         else:
-            summary.append(f"- SCA not performed.")
+            summary.append(f"- **SCA not performed.**")
         summary.append(f"")
 
         summary.append(f"## Static Analysis")
-        if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
+        if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis) and self.componentStaticAnalysis.analysisExecuted is True:
             relevantFindings = 0
             for finding in self.componentStaticAnalysis.analysisFindings:
                 filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
@@ -503,7 +503,7 @@ class SecAware:
 
             summary.append(f"- Total Static Analysis Findings Detected: `{str(relevantFindings)}`")
         else:
-            summary.append(f"- Static Analysis not performed.")
+            summary.append(f"- **Static Analysis not performed.**")
         summary.append(f"")
 
         summary.append(f"## Generative AI Analysis")
@@ -514,7 +514,7 @@ class SecAware:
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
             summary.append(f"- Total AI Analysis Vulnerabilities Detected: `{str(aiVulnerabilityCount)}`")
         else:
-            summary.append(f"- Generative AI Analysis not performed.")
+            summary.append(f"- **Generative AI Analysis not performed.**")
         summary.append(f"")
         
         self.loggers['secAware'].info("\n" + "\n".join(summary))

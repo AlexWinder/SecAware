@@ -9,6 +9,7 @@
 - Feature: Added missing minimum dependency version age from SCA report.
 - Feature: Added `60` second timeout when calling the generative AI API.
 - Feature: Repeat failed calls for all requests to the AI API, rather than just vulnerability scanning.
+- Fix: Handle crashes from Psalm causing the whole process to fail.
 - Fix: Deleted files are included in the vulnerability scan, causing crashes due to file not found.
 - Fix: SCA fails for dependencies that cannot be found via the Packagist API.
 - Fix: Project is not cloned if there is no parent commit beyond the provided git reference.
