@@ -146,7 +146,7 @@ class AIRestAPI:
         return payload
     
     @staticmethod
-    def executeWithRetries(operationName, function, logger, maxRetries=20, retryDelay=2):
+    def executeWithRetries(operationName, function, logger, maxRetries=50, retryDelay=2):
         for attempt in range(1, maxRetries + 1):
             try:
                 result = function()
