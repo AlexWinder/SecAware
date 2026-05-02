@@ -44,9 +44,9 @@ class GitHelper:
         if not commit.parents:
             # If we have no commit parents, then this is the initial commit
             emptyTreeHash = repo.git.hash_object("-t", "tree", "/dev/null")
-            diff = repo.git.diff(emptyTreeHash, commitHash, name_only=True)
+            diff = repo.git.diff(emptyTreeHash, commitHash, name_only=True, diff_filter="d")
         else:
-            diff = repo.git.diff(f"{commitHash}~1", commitHash, name_only=True)
+            diff = repo.git.diff(f"{commitHash}~1", commitHash, name_only=True, diff_filter="d")
 
         changedFiles = diff.splitlines()
         return changedFiles

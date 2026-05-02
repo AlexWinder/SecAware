@@ -446,7 +446,7 @@ class SecAware:
         summary.append(f"- Generation Date: {datetime.datetime.now().isoformat()}")
         summary.append(f"- Git Repository: `{self.gitRepoRemoteUrl}`")
         summary.append(f"- Git Commit: `{self.gitCommitHash}`")
-        summary.append(f"- Total PHP Files Changed Within Commit: `{str(len(self.codeFilesForAnalysis))}`")
+        summary.append(f"- Total PHP Files Changed Within Commit (Excluding Deletions): `{str(len(self.codeFilesForAnalysis))}`")
         summary.append(f"- AI Model: `{self.aiModel}`")
         summary.append(f"- AI REST API Base URL: `{self.aiRestApiBaseUrl}`")
 
