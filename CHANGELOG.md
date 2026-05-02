@@ -7,6 +7,8 @@
 - Feature: Added standard deviation to output report of SCA component for CVEs and weak links.
 - Feature: Added AI token usage into reports.
 - Feature: Added missing minimum dependency version age from SCA report.
+- Feature: Added `60` second timeout when calling the generative AI API.
+- Feature: Repeat failed calls for all requests to the AI API, rather than just vulnerability scanning.
 - Fix: Improved error handling from AI API provider.
 - Fix: Improved wording of statistical measurements in SCA component report.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
