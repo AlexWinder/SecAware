@@ -172,9 +172,13 @@ class SecAware:
                 f.write(line + "\n")
 
             f.write(vulnerabilityReport + "\n\n")
-            
-            for line in self.componentSoftwareCompositionAnalysis.reportContents:
-                f.write(line + "\n")
+
+            if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
+                for line in self.componentSoftwareCompositionAnalysis.reportContents:
+                    f.write(line + "\n")
+            else:
+                f.write("# Software Composition Analysis (SCA)\n\nSCA not performed.\n")
+
 
         logger.info(ConsoleColour.toGreen("SecAware analysis complete. Final report generated at " + f"{self.reportPath}/SecAwareFindingsReport.md"))
 

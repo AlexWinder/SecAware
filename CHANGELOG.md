@@ -9,6 +9,7 @@
 - Feature: Added missing minimum dependency version age from SCA report.
 - Feature: Added `60` second timeout when calling the generative AI API.
 - Feature: Repeat failed calls for all requests to the AI API, rather than just vulnerability scanning.
+- Fix: SecAware report not generated if SCA is not executed (such as missing `composer.json`).
 - Fix: Improved error handling from AI API provider.
 - Fix: Improved wording of statistical measurements in SCA component report.
 - Fix: `Dockerfile` updated from Python `3.14.3` to `3.14.4`.
