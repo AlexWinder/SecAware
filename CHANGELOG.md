@@ -3,7 +3,7 @@
 ## Upcoming Changes
 
 - Feature: Added SecAware version into the report.
-- Feature: Added support for `--scan-identifier` which, when populated, will be included in the final report to act as an identifier of a scan.
+- Feature: Added support for `--scan-identifier` which, when populated, will be included in the final report to act as an identifier of a scan. This is also used within the report directory path to avoid commit reference conflicts.
 - Feature: Added standard deviation to output report of SCA component for CVEs and weak links.
 - Feature: Added AI token usage into reports.
 - Feature: Added missing minimum dependency version age from SCA report.
