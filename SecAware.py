@@ -51,7 +51,14 @@ class SecAware:
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
         self.gitRepoLocalPath = SecAware.relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
 
-        self.reportPath = SecAware.relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
+        relativePath = f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}"
+        if scanIdentifier:
+            cleanScanIdentifier = "".join(
+                c for c in scanIdentifier.lower() if c.isalnum()
+            )
+            relativePath += f"-{cleanScanIdentifier}"
+
+        self.reportPath = SecAware.relativeToScriptAbsolutePath(relativePath)
         self.configureLogging(logPath=f"{self.reportPath}/secaware.log")
         self.loggers = {
             'secAware': logging.getLogger('SecAware'),
