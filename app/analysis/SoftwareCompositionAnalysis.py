@@ -660,6 +660,11 @@ class SoftwareCompositionAnalysis:
 
             # https://packagist.org/apidoc
             response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
+
+            if response.status_code != 200:
+                self.logger.warning(f"Warning: Failed to fetch version data for {dependency['name']} from Packagist API. Status code: {response.status_code}. Response: {response.text}")
+                continue
+
             json = response.json()
             allVersions = []
 
