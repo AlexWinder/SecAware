@@ -13,8 +13,15 @@ class GitHelper:
             else:
                 print(message)
 
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+
         # Workaround to allow GitPython within Docker environments due to file permissions
-        subprocess.run(['git', 'config', '--global', '--replace-all', 'safe.directory', '*'])
+        subprocess.run(
+            ['git', 'config', '--global', '--replace-all', 'safe.directory', '*'],
+            env=env,
+            check=False
+        )
 
         # If the repository already exists at the correct commit hash, then skip cloning
         if os.path.exists(repoPath):
@@ -29,10 +36,16 @@ class GitHelper:
             log(f"Cloning repository {repoUrl} at commit {commitHash} into {repoPath}.")
             repo = git.Repo.init(repoPath)
             origin = repo.create_remote('origin', repoUrl) if 'origin' not in repo.remotes else repo.remotes.origin
-            # 2 depth needed to allow diffing from the parent
-            origin.fetch(commitHash, depth=depth)
-            repo.git.checkout('FETCH_HEAD')
-            log(f"Successfully cloned repository at {repoPath} with commit {commitHash}.")
+            try:
+
+                # 2 depth needed to allow diffing from the parent
+                origin.fetch(commitHash, depth=depth, env=env)
+                repo.git.checkout('FETCH_HEAD')
+                log(f"Successfully cloned repository at {repoPath} with commit {commitHash}.")
+            except git.exc.GitCommandError as e:
+                message = f"Skipping repository {repoUrl}: {e}"
+                log(message)
+                raise GitCloneFailureError(message)
 
         return repoPath
     
@@ -50,3 +63,6 @@ class GitHelper:
 
         changedFiles = diff.splitlines()
         return changedFiles
+    
+class GitCloneFailureError(Exception):
+    pass

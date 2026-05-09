@@ -11,7 +11,7 @@ import semantic_version
 import statistics
 
 from app.utils.ConsoleColour import ConsoleColour
-from app.utils.GitHelper import GitHelper
+from app.utils.GitHelper import GitCloneFailureError, GitHelper
 
 class SoftwareCompositionAnalysis:
     cacheDirectoryPath: str
@@ -787,10 +787,13 @@ class SoftwareCompositionAnalysis:
 
             if repoUrl and repoReference:
                 self.logger.info(f"Caching repository for dependency {dependency['name']} from {repoUrl} at reference {repoReference} into {clonePath}.")
-                GitHelper.shallowClone(clonePath, repoUrl, repoReference, logger=self.logger, depth=1)
-
-                self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
-                self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
+                
+                try:
+                    GitHelper.shallowClone(clonePath, repoUrl, repoReference, logger=self.logger, depth=1)
+                    self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
+                    self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
+                except GitCloneFailureError as e:
+                    self.logger.warning(f"Warning: Failed to clone repository for dependency {dependency['name']} from {repoUrl} at reference {repoReference}. Error: {str(e)}. Skipping caching for this dependency.")
 
     def parseMetadataFromComposerManifestFile(self):
         self.logger.info("Parsing metadata from composer.json manifest files for all dependencies.")
@@ -983,6 +986,11 @@ class SoftwareCompositionAnalysis:
                         "Authorization": f"Bearer {os.getenv('GITHUB_API_BEARER_TOKEN')}"
                     }
                 )
+
+                if response.status_code != 200:
+                    self.logger.warning(f"Warning: Failed to fetch commits for repository {gitProjectSlug} from GitHub API. Status code: {response.status_code}. Response: {response.text}")
+                    continue
+
                 commits = response.json()
                 self.logger.debug(commits)
 
