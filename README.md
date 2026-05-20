@@ -1,6 +1,6 @@
 # SecAware
 
-SecAware provides context-aware vulnerability scans of PHP applications. SecAware aggregates the findings of several security analysis tools to provide better insight into software risks.
+SecAware provides context-aware vulnerability scans of PHP applications. SecAware aggregates the findings of several security analysis tools and resources to provide better insight into software risks.
 
 >SecAware is a prototype tool developed as part of a research project during an MSc dissertation. It is intended for demonstration and evaluation purposes and is not production-ready.
 
@@ -16,9 +16,9 @@ SecAware uses a generative AI component to assist with vulnerability detection a
 
 LM Studio should be configured with the following settings:
 
-1. Developer mode should be enabled, [following the official instructions from LM Studio.](https://lmstudio.ai/docs/app/user-interface/modes)
+1. Developer mode should be enabled, [following the official instructions from LM Studio](https://lmstudio.ai/docs/app/user-interface/modes).
 2. Within the developer window, configure the server settings so that `Serve on Local Network` is enabled. This will allow communication from your LM Studio to SecAware.
-3. Ensure that you have downloaded the correct model to be used. SecAware has been built and tested against the [Google Gemma 3 model family](https://ai.google.dev/gemma/docs/core). More details available on [Hugging Face](https://huggingface.co/collections/google/googles-gemma-models-family).
+3. Ensure that you have downloaded the correct model to be used. SecAware has been built and tested against the [Google Gemma 3 model family](https://ai.google.dev/gemma/docs/core). More details are available on [Hugging Face](https://huggingface.co/collections/google/googles-gemma-models-family).
 
 When you intend to use SecAware, you should ensure that the LM Studio server is running with the correct model loaded.
 
@@ -38,14 +38,14 @@ Generative AI is resource-intensive. While Hugging Face provides a small amount 
 
 Create a copy of `.env.example` as `.env`, and ensure that you populate the following values:
 
-| Value                     | Description                                                                                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_API_BEARER_TOKEN`     | A `Bearer` token, if required for an AI API Inference Provider, such as Hugging Face (https://huggingface.co/settings/tokens).                                                                                                             |
-| `GITHUB_API_BEARER_TOKEN` | An `Authorization` token required to be able to make use of the GitHub API which is used as part of SecAware SCA component for repository analysis. A [public access PAT is required](https://github.com/settings/personal-access-tokens). |
+| Value                     | Description                                                                                                                                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_API_BEARER_TOKEN`     | A `Bearer` token, if required for an AI API Inference Provider, such as Hugging Face (https://huggingface.co/settings/tokens).                                                                                                                                                              |
+| `GITHUB_API_BEARER_TOKEN` | An `Authorization` token required to be able to make use of the GitHub API which is used as part of SecAware's Software Composition Analysis (SCA) component for repository and dependency analysis. A [public access PAT is required](https://github.com/settings/personal-access-tokens). |
 
 ### Docker
 
-Please use the provided [Docker](Dockerfile) container. SecAware is designed with specific assumptions regarding operating system functionalities and capabilities. Executing SecAware natively may lead to environment-related crashes or inconsistent analysis results.
+It is strongly recommended to use the provided [Docker](Dockerfile) container. SecAware is designed with specific assumptions regarding operating system functionalities and capabilities. Executing SecAware natively may lead to environment-related crashes or inconsistent analysis results.
 
 Before starting you should build the container:
 
@@ -65,19 +65,19 @@ docker run -it --rm \
     sh -c "uv pip install --system -e . && ./SecAware.py --help"
 ```
 
-## Example Output
+## Example Usage
 
-Below is an example of running against the Hugging Face API, against the [`in2code-de/ipandlanguageredirect`](https://github.com/in2code-de/ipandlanguageredirect) repository, referencing commit [`b814ae1bc545187f924734c1f3ee0999153264ae`](https://github.com/in2code-de/ipandlanguageredirect/commit/b814ae1bc545187f924734c1f3ee0999153264ae). This example introduces a known CWE-89 SQL injection which was reported during [CVE-2023-35782](https://nvd.nist.gov/vuln/detail/CVE-2023-35782) / [GHSA-4xf2-7qfv-mgfx](https://github.com/advisories/GHSA-4xf2-7qfv-mgfx).
+Below is an example of running against the Hugging Face API, against the [`in2code-de/ipandlanguageredirect`](https://github.com/in2code-de/ipandlanguageredirect) repository, referencing commit [`b814ae1bc545187f924734c1f3ee0999153264ae`](https://github.com/in2code-de/ipandlanguageredirect/commit/b814ae1bc545187f924734c1f3ee0999153264ae). This example contains a known CWE-89 SQL injection which was reported during [CVE-2023-35782](https://nvd.nist.gov/vuln/detail/CVE-2023-35782) / [GHSA-4xf2-7qfv-mgfx](https://github.com/advisories/GHSA-4xf2-7qfv-mgfx).
 
 ```bash
 docker run -it --rm \
     -v "$(pwd):/app" \
     -w /app \
     secaware \
-    sh -c "uv pip install --system -e . && ./SecAware.py --ai-rest-base-url https://router.huggingface.co --ai-model google/gemma-3-27b-it --git-repo-url https://github.com/in2code-de/ipandlanguageredirect.git --git-commit-hash b814ae1bc545187f924734c1f3ee0999153264ae --scan-identifier BLAH"
+    sh -c "uv pip install --system -e . && ./SecAware.py --ai-rest-base-url https://router.huggingface.co --ai-model google/gemma-3-27b-it --git-repo-url https://github.com/in2code-de/ipandlanguageredirect.git --git-commit-hash b814ae1bc545187f924734c1f3ee0999153264ae"
 ```
 
-With the above execution, a report is generated which will contain any security findings. Below is an example section of the produced report:
+With the above execution, a report is generated which will contain any security findings. Below is an example section of the report produced by SecAware:
 
 `````text
 # Vulnerability Report
@@ -113,7 +113,7 @@ return strtolower($result);
 * **OWASP:** The Open Web Application Security Project – a community focused on improving the security of software.
 `````
 
->Please note that due to the non-deterministic nature of AI, you are unlikely to obtain the exact same result each time. Different models perform in different ways.
+>Please note that due to the non-deterministic nature of AI, you may not obtain the exact same result each time. Different models also perform in different ways.
 
 ## Diagrams
 
@@ -274,7 +274,7 @@ stateDiagram-v2
 
 ### AI API Unpredictability
 
-In some circumstances it's been found that the AI API is unpredictable such as reporting timeouts or HTTP 504. This has been experienced particularly with the Hugging Face API:
+In some circumstances it's been found that the AI API is unpredictable, such as reporting timeouts or HTTP 504. This has been experienced particularly with the Hugging Face API:
 
 ```console
 SecAware.GAIA : INFO     Analysing file 2/3: Classes/Domain/Service/IpToCountry/LocalDatabase.php
