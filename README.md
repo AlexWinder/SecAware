@@ -30,7 +30,7 @@ SecAware by default is configured to use LM Studio on the same host as you are e
 
 To use Hugging Face with SecAware, you can pass in `--ai-rest-base-url https://router.huggingface.co` and the `--ai-model` flag. Successful testing has been achieved with `google/gemma-3-27b-it`, for example `./SecAware.py --ai-rest-base-url https://router.huggingface.co --ai-model google/gemma-3-27b-it`.
 
-In order to use Hugging Face, you will need to ensure that you have created a user access token, which is available at [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+In order to use Hugging Face, you will need to ensure that you have created a user access token, which is available at https://huggingface.co/settings/tokens.
 
 Generative AI is resource-intensive. While Hugging Face provides a small amount of free credit for testing, extensive or continual use of SecAware may require sufficient account credit.
 
