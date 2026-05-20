@@ -552,10 +552,10 @@ class SecAware:
 
 if __name__ == '__main__':
 
-    print(ConsoleColour.toGreen("SecAware - A Context-Aware Software Vulnerability Detection Tool") + "\n")
+    print(ConsoleColour.toGreen("SecAware - A Context-Aware Software Vulnerability Detection Tool for PHP Applications") + "\n")
 
     description = textwrap.dedent("""\
-        SecAware is a context-aware software vulnerability detection tool. It combines traditional software composition analysis and static analysis techniques with generative AI capability to provide comprehensive vulnerability detection for software applications.
+        SecAware is a context-aware software vulnerability detection tool for PHP applications. It combines traditional software composition analysis and static analysis techniques with generative AI capability to provide comprehensive vulnerability detection for software applications.
     """)
 
     parser = argparse.ArgumentParser(
