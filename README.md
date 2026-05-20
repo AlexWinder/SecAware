@@ -67,7 +67,7 @@ docker run -it --rm \
 
 ## Example Output
 
-Below is an example of running against the Hugging Face API, against the [`in2code-de/ipandlanguageredirect`](https://github.com/in2code-de/ipandlanguageredirect) repository, referencing commit [`b814ae1bc545187f924734c1f3ee0999153264ae`](https://github.com/in2code-de/ipandlanguageredirect/commit/b814ae1bc545187f924734c1f3ee0999153264ae). This example introduces a known CWE-89 SQL injection which was reported during [CVE-2023-35782](https://nvd.nist.gov/vuln/detail/CVE-2023-35782)/[GHSA-4xf2-7qfv-mgfx](https://github.com/advisories/GHSA-4xf2-7qfv-mgfx).
+Below is an example of running against the Hugging Face API, against the [`in2code-de/ipandlanguageredirect`](https://github.com/in2code-de/ipandlanguageredirect) repository, referencing commit [`b814ae1bc545187f924734c1f3ee0999153264ae`](https://github.com/in2code-de/ipandlanguageredirect/commit/b814ae1bc545187f924734c1f3ee0999153264ae). This example introduces a known CWE-89 SQL injection which was reported during [CVE-2023-35782](https://nvd.nist.gov/vuln/detail/CVE-2023-35782) / [GHSA-4xf2-7qfv-mgfx](https://github.com/advisories/GHSA-4xf2-7qfv-mgfx).
 
 ```bash
 docker run -it --rm \
