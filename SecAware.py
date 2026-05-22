@@ -11,6 +11,7 @@ import requests
 import sys
 import textwrap
 import time
+import tomllib
 
 from app.analysis.GenerativeAIAnalysis import GenerativeAIAnalysis
 from app.analysis.SoftwareCompositionAnalysis import SoftwareCompositionAnalysis, SCAMissingDependencyFilesError, SCAMissingDirectoryError
@@ -29,6 +30,7 @@ class SecAware:
     componentGenerativeAIAnalysis: GenerativeAIAnalysis
     componentSoftwareCompositionAnalysis: SoftwareCompositionAnalysis
     componentStaticAnalysis: StaticAnalysis
+    contextWindowUsage: int
     dependencyManagementFiles: list
     gitChangedFiles: list
     gitRepoLocalPath: str
@@ -36,18 +38,27 @@ class SecAware:
     gitCommitHash: str
     loggers: dict
     reportPath: str
+    scanIdentifier: str
     startTime: str
     warnIfFilesChangedExceedCount: int
 
     def __init__(
             self, aiModel, aiRestApiBaseUrl, gitRepoRemoteUrl, gitCommitHash, scaAllowedSPDXLicenses=[], scaOverallCommitMinimumActivityDays=None,
-            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRadioThreshold=None, scaMinimumVersionAge=None, warnIfFilesChangedExceedCount=None
+            scaMaintainerCommitMinimumActivityDays=None, scaOpenToClosedIssueRatioThreshold=None, scaMinimumVersionAgeDays=None, 
+            scanIdentifier=None, warnIfFilesChangedExceedCount=None
         ):
         gitPath = pathlib.Path(gitRepoRemoteUrl)
         gitProjectSlug = f"{gitPath.parent.name}/{gitPath.stem}/{gitCommitHash[:7]}"
         self.gitRepoLocalPath = SecAware.relativeToScriptAbsolutePath(f"git-project-data/{gitProjectSlug}")
 
-        self.reportPath = SecAware.relativeToScriptAbsolutePath(f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}")
+        relativePath = f"reports/{gitPath.parent.name}-{gitPath.stem}-{gitCommitHash[:7]}"
+        if scanIdentifier:
+            cleanScanIdentifier = "".join(
+                c for c in scanIdentifier.lower() if c.isalnum()
+            )
+            relativePath += f"-{cleanScanIdentifier}"
+
+        self.reportPath = SecAware.relativeToScriptAbsolutePath(relativePath)
         self.configureLogging(logPath=f"{self.reportPath}/secaware.log")
         self.loggers = {
             'secAware': logging.getLogger('SecAware'),
@@ -62,8 +73,10 @@ class SecAware:
         
         self.aiModel = aiModel
         self.aiRestApiBaseUrl = self.formatBaseUrl(aiRestApiBaseUrl)
+        self.contextWindowUsage = 0
         self.gitRepoRemoteUrl = gitRepoRemoteUrl
         self.gitCommitHash = gitCommitHash
+        self.scanIdentifier = scanIdentifier
         self.startTime = time.perf_counter()
         self.warnIfFilesChangedExceedCount = warnIfFilesChangedExceedCount
 
@@ -71,6 +84,7 @@ class SecAware:
         logger.debug(f"AI REST API Base URL: {self.aiRestApiBaseUrl}")
         logger.debug(f"Git Repo URL: {self.gitRepoRemoteUrl}")
         logger.debug(f"Git Commit Hash: {self.gitCommitHash}")
+        logger.debug(f"Scan Identifier: {self.scanIdentifier}")
         logger.debug(f"Start Time: {self.startTime}")
         logger.debug(f"Warning Threshold for Files Changed: {self.warnIfFilesChangedExceedCount}")
 
@@ -96,8 +110,8 @@ class SecAware:
                 allowedSPDXLicenses=scaAllowedSPDXLicenses,
                 overallCommitMinimumActivityDays=scaOverallCommitMinimumActivityDays,
                 maintainerCommitMinimumActivityDays=scaMaintainerCommitMinimumActivityDays,
-                openToClosedIssueRatioThreshold=scaOpenToClosedIssueRadioThreshold,
-                minimumVersionAge=scaMinimumVersionAge,
+                openToClosedIssueRatioThreshold=scaOpenToClosedIssueRatioThreshold,
+                minimumVersionAgeDays=scaMinimumVersionAgeDays,
                 gitProjectName= f"{gitPath.parent.name}/{gitPath.stem}",
                 gitCommitHash=gitCommitHash
             )
@@ -146,7 +160,11 @@ class SecAware:
         SecAware.dumpJsonToFile(combinedFindingsJsonPath, self.combinedVulnerabilityFindings)
 
         logger.info(ConsoleColour.toYellow("Producing Contextualised Vulnerability Report"))
-        vulnerabilityReport = self.produceContextualisedReport()
+        vulnerabilityReport = AIRestAPI.executeWithRetries(
+                operationName=f"Producing contextualised vulnerability report",
+                logger=self.loggers['secAware'],
+                function=lambda: self.produceContextualisedReport()
+            )
         reportPath = f"{self.reportPath}/reportVulnerabilities.md"
         logger.info(f"Dumping vulnerability report to {reportPath}.")
         with open(reportPath, 'w', encoding='utf-8') as f:
@@ -161,9 +179,13 @@ class SecAware:
                 f.write(line + "\n")
 
             f.write(vulnerabilityReport + "\n\n")
-            
-            for line in self.componentSoftwareCompositionAnalysis.reportContents:
-                f.write(line + "\n")
+
+            if hasattr(self, 'componentSoftwareCompositionAnalysis') and isinstance(self.componentSoftwareCompositionAnalysis, SoftwareCompositionAnalysis):
+                for line in self.componentSoftwareCompositionAnalysis.reportContents:
+                    f.write(line + "\n")
+            else:
+                f.write("# Software Composition Analysis (SCA)\n\n**SCA not performed.**\n")
+
 
         logger.info(ConsoleColour.toGreen("SecAware analysis complete. Final report generated at " + f"{self.reportPath}/SecAwareFindingsReport.md"))
 
@@ -327,6 +349,7 @@ class SecAware:
             - Merge duplicate findings referring to the same code snippet and vulnerability.
             - Resolve conflicts by prioritising the most strongly supported finding.
             - Reflect uncertainty through wording and risk score where appropriate.
+            - Generative AI findings with low confidence scores (less than 5) should be treated as less certain. However, if there is strong evidence in the static analysis for the same vulnerability, this should be prioritised even if the generative AI confidence is low.
             
             Additional Rules:
             - Under no circumstances should you fabricate findings. Only report what is provided by the evidence.
@@ -354,7 +377,7 @@ class SecAware:
             - Each finding must correspond to a unique issue.
                                        
             ## Glossary
-            Provide concise definitions for any technical terms used in the report.
+            Provide concise definitions for any technical terms used in the report. This should be brief and easily understandable for a non-technical stakeholder.
                                        
             CLASSIFICATION RULES:
             - Use the OWASP Top 10 categories and CWE mappings below as the authoritative source.
@@ -403,8 +426,13 @@ class SecAware:
 
         responseJson = response.json()
         self.loggers['secAware'].debug(responseJson)
-        if response.status_code == 200 and 'choices' in responseJson:
-            return responseJson['choices'][0]['message']['content']
+        if response.status_code == 200:
+            if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+                self.contextWindowUsage += responseJson['usage']['total_tokens']
+                self.loggers['secAware'].debug(f"Total context window usage after report generation: {self.contextWindowUsage} tokens.")
+
+            if 'choices' in responseJson:
+                return responseJson['choices'][0]['message']['content']
 
     def produceExecutionReport(self):
         self.loggers['secAware'].debug("Execution Report")
@@ -419,12 +447,25 @@ class SecAware:
             summary.append(f"")
 
         summary.append(f"# Summary of Execution")
+        summary.append(f"- SecAware Version: {self.loadPyProjectToml()['project']['version']}")
+        if hasattr(self, 'scanIdentifier') and self.scanIdentifier:
+            summary.append(f"- Scan Identifier: `{self.scanIdentifier}`")
         summary.append(f"- Generation Date: {datetime.datetime.now().isoformat()}")
         summary.append(f"- Git Repository: `{self.gitRepoRemoteUrl}`")
         summary.append(f"- Git Commit: `{self.gitCommitHash}`")
-        summary.append(f"- Total Suitable Files Changed: `{str(len(self.codeFilesForAnalysis))}`")
+        summary.append(f"- Total PHP Files Changed Within Commit (Excluding Deletions): `{str(len(self.codeFilesForAnalysis))}`")
         summary.append(f"- AI Model: `{self.aiModel}`")
         summary.append(f"- AI REST API Base URL: `{self.aiRestApiBaseUrl}`")
+
+        totalContextWindowUsage = self.contextWindowUsage
+        gaiaContextWindowUsage = 0
+        if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            totalContextWindowUsage += self.componentGenerativeAIAnalysis.contextWindowUsage
+            gaiaContextWindowUsage = self.componentGenerativeAIAnalysis.contextWindowUsage
+        summary.append(f"- Total Token Usage: `{str(totalContextWindowUsage)}` tokens")
+        summary.append(f"   - SecAware Report: `{str(self.contextWindowUsage)}` tokens")
+        summary.append(f"   - Generative AI Analysis: `{str(gaiaContextWindowUsage)}` tokens")
+
         summary.append(f"- Warning Threshold for Changed Files: `{self.warnIfFilesChangedExceedCount}` files")
         summary.append(f"- Analysis Time: `{time.perf_counter() - self.startTime:.2f}` seconds")
         summary.append(f"")
@@ -454,11 +495,11 @@ class SecAware:
             summary.append(f"   - Open to Closed Issue Ratio Threshold: `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['openToClosedIssueRatioThreshold']}`")
             summary.append(f"   - Minimum Version Age (days): `{self.componentSoftwareCompositionAnalysis.userDefinedThresholds['minimumVersionAge']}`")
         else:
-            summary.append(f"- SCA not performed.")
+            summary.append(f"- **SCA not performed.**")
         summary.append(f"")
 
         summary.append(f"## Static Analysis")
-        if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis):
+        if hasattr(self, 'componentStaticAnalysis') and isinstance(self.componentStaticAnalysis, StaticAnalysis) and self.componentStaticAnalysis.analysisExecuted is True:
             relevantFindings = 0
             for finding in self.componentStaticAnalysis.analysisFindings:
                 filePath = self.stripBackFilePath(self.gitRepoLocalPath, finding.get('file_path', ''))
@@ -469,17 +510,18 @@ class SecAware:
 
             summary.append(f"- Total Static Analysis Findings Detected: `{str(relevantFindings)}`")
         else:
-            summary.append(f"- Static Analysis not performed.")
+            summary.append(f"- **Static Analysis not performed.**")
         summary.append(f"")
 
         summary.append(f"## Generative AI Analysis")
         if hasattr(self, 'componentGenerativeAIAnalysis') and isinstance(self.componentGenerativeAIAnalysis, GenerativeAIAnalysis):
+            summary.append(f"- AI Analysis Context Window Usage: `{str(self.componentGenerativeAIAnalysis.contextWindowUsage)}` tokens")
             aiVulnerabilityCount = 0
             for finding in self.componentGenerativeAIAnalysis.findings.values():
                 aiVulnerabilityCount += len(finding.get('vulnerabilities') or [])
             summary.append(f"- Total AI Analysis Vulnerabilities Detected: `{str(aiVulnerabilityCount)}`")
         else:
-            summary.append(f"- Generative AI Analysis not performed.")
+            summary.append(f"- **Generative AI Analysis not performed.**")
         summary.append(f"")
         
         self.loggers['secAware'].info("\n" + "\n".join(summary))
@@ -503,12 +545,17 @@ class SecAware:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
 
+    @staticmethod
+    def loadPyProjectToml():
+        with(open(SecAware.relativeToScriptAbsolutePath("pyproject.toml"), 'rb')) as f:
+            return tomllib.load(f)
+
 if __name__ == '__main__':
 
-    print(ConsoleColour.toGreen("SecAware - A Context-Aware Software Vulnerability Detection Tool") + "\n")
+    print(ConsoleColour.toGreen("SecAware - A Context-Aware Software Vulnerability Detection Tool for PHP Applications") + "\n")
 
     description = textwrap.dedent("""\
-        SecAware is a context-aware software vulnerability detection tool. It combines traditional software composition analysis and static analysis techniques with generative AI capability to provide comprehensive vulnerability detection for software applications.
+        SecAware is a context-aware software vulnerability detection tool for PHP applications. It combines traditional software composition analysis and static analysis techniques with generative AI capability to provide comprehensive vulnerability detection for software applications.
     """)
 
     parser = argparse.ArgumentParser(
@@ -524,8 +571,9 @@ if __name__ == '__main__':
     parser.add_argument('--sca-allowed-spdx-licenses', nargs='+', default=[], help='(SCA) Allow-list of SPDX licenses for dependencies. See https://spdx.org/licenses/ for available license identifiers.')
     parser.add_argument('--sca-overall-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for general commit activity.')
     parser.add_argument('--sca-maintainer-commit-minimum-activity-days', type=int, default=1, help='(SCA) Minimum number of days required for maintainer commit activity.')
-    parser.add_argument('--sca-open-to-closed-issue-radio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
-    parser.add_argument('--sca-minimum-version-age', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
+    parser.add_argument('--sca-open-to-closed-issue-ratio-threshold', type=float, default=0.01, help='(SCA) Threshold for open to closed issue ratio.')
+    parser.add_argument('--sca-minimum-version-age-days', type=int, default=3650, help='(SCA) Minimum number of days old that a version must be.')
+    parser.add_argument('--scan-identifier', type=str, help='Optional identifier for this scan, which will be included in the report.')
     parser.add_argument('--warn-if-files-changed-exceed', type=int, default=1, help='Warning threshold for number of files changed in the commit. Large changes are more likely to contain vulnerabilities, but may also produce more false positives, or be more difficult to analyse effectively.')
 
     args = parser.parse_args()
@@ -538,7 +586,8 @@ if __name__ == '__main__':
         scaAllowedSPDXLicenses=args.sca_allowed_spdx_licenses,
         scaOverallCommitMinimumActivityDays=args.sca_overall_commit_minimum_activity_days,
         scaMaintainerCommitMinimumActivityDays=args.sca_maintainer_commit_minimum_activity_days,
-        scaOpenToClosedIssueRadioThreshold=args.sca_open_to_closed_issue_radio_threshold,
-        scaMinimumVersionAge=args.sca_minimum_version_age,
+        scaOpenToClosedIssueRatioThreshold=args.sca_open_to_closed_issue_ratio_threshold,
+        scaMinimumVersionAgeDays=args.sca_minimum_version_age_days,
+        scanIdentifier=args.scan_identifier,
         warnIfFilesChangedExceedCount=args.warn_if_files_changed_exceed
     )

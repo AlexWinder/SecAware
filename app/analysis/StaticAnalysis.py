@@ -9,14 +9,20 @@ from app.utils.ConsoleColour import ConsoleColour
 
 class StaticAnalysis:
     analysisFindings: list
+    analysisExecuted: bool
     psalmConfigPath: str
 
     def __init__(self, filesForAnalysis, logger):
+        self.analysisExecuted = False
+        self.analysisFindings = []
         self.logger = logger
         self.psalmConfigPath = "/tmp/psalm.xml"
 
         self.buildConfigurationFile()
-        self.runAnalysis(filesForAnalysis)
+        try:
+            self.runAnalysis(filesForAnalysis)
+        except Exception:
+            self.logger.error(f"Error occurred while running static analysis.")
 
     def buildConfigurationFile(self):
         self.logger.info(f"Building Psalm configuration file at {self.psalmConfigPath}.")
@@ -44,6 +50,7 @@ class StaticAnalysis:
         ], capture_output=True, text=True)
 
         self.analysisFindings = json.loads(result.stdout)
+        self.analysisExecuted = True
 
         self.logger.info(f"Completed static analysis with Psalm. Found {len(self.analysisFindings)} issues.")
         self.logger.debug(self.analysisFindings)

@@ -5,7 +5,6 @@ import os
 import re
 import requests
 import textwrap
-import time
 
 from app.data.OWASPContext import owaspTop10Context
 from app.utils.AIRestAPI import AIRestAPI
@@ -13,6 +12,7 @@ from app.utils.ConsoleColour import ConsoleColour
 
 class GenerativeAIAnalysis:
     baseUrl: str
+    contextWindowUsage: int
     directoryToScanPath: str
     filesToScan: list
     findings: dict
@@ -20,6 +20,7 @@ class GenerativeAIAnalysis:
 
     def __init__(self, baseUrl, model, directoryToScanPath, filesToScan, logger):
         self.baseUrl = baseUrl
+        self.contextWindowUsage = 0
         self.directoryToScanPath = directoryToScanPath
         self.filesToScan = filesToScan
         self.findings = {}
@@ -52,43 +53,37 @@ class GenerativeAIAnalysis:
 
         # We scan several times because AI is non-deterministic
         scanRange = 3
-        maxRetries = 3
-        retryDelay = 2
         for i in range(scanRange):
             self.logger.info(f'Scanning {relativeFilePath} (iteration {i+1}/{scanRange}).')
 
-            findings = []
-
-            for attempt in range(1, maxRetries + 1):
-                try:
-                    findings = self.initialVulnerabilityScan(absoluteFilePath)
-
-                    if findings is None:
-                        raise ValueError("Initial vulnerability scan returned None.")
-                    
-                    break
-                except (requests.RequestException, ValueError) as e:
-                    self.logger.warning(ConsoleColour.toRed(f"Attempt {attempt}/{maxRetries} failed for {relativeFilePath}: {str(e)}"))
-
-                    if attempt < maxRetries:
-                        time.sleep(retryDelay * attempt)
-                    else:
-                        self.logger.error(ConsoleColour.toRed(f"Max retries reached for {relativeFilePath}. Skipping this file."))
+            findings = AIRestAPI.executeWithRetries(
+                operationName=f"Initial scan for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.initialVulnerabilityScan(absoluteFilePath),
+            )
 
             for finding in findings:
                 self.findings[relativeFilePath]["vulnerabilities"].append(finding)
 
         if len(self.findings[relativeFilePath]["vulnerabilities"]) > 0:
             self.logger.info(f"Aggregating findings for file {relativeFilePath}.")
-            aggregated = self.aggregateInitialFindings(
-                fileReference=relativeFilePath, 
-                filePath=absoluteFilePath
+            aggregated = AIRestAPI.executeWithRetries(
+                operationName=f"Aggregation for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.aggregateInitialFindings(
+                    fileReference=relativeFilePath,
+                    filePath=absoluteFilePath
+                )
             )
             self.findings[relativeFilePath]["vulnerabilities"] = aggregated
 
             self.logger.info(f"Assigning correct CWE and OWASP categories for file {relativeFilePath}.")
-            corrected = self.assignCorrectCWEOWASPCategories(
-                fileReference=relativeFilePath
+            corrected = AIRestAPI.executeWithRetries(
+                operationName=f"OWASP/CWE assignment for {relativeFilePath}",
+                logger=self.logger,
+                function=lambda: self.assignCorrectCWEOWASPCategories(
+                    fileReference=relativeFilePath
+                )
             )
             self.findings[relativeFilePath]["vulnerabilities"] = corrected
         else:
@@ -110,11 +105,12 @@ class GenerativeAIAnalysis:
             
             Explicit guidelines:
             - Only report vulnerabilities directly supported by the provided code.
+            - When producing results, attempt to provide them within the context of the provided code. The findings should be context-aware where possible, rather than generic or speculative.
             - Do not invent lines, functions, SQL queries, or behaviour not present in the code.
             - If there is insufficient evidence, return an empty vulnerabilities array.
-            - When providing a fix, give instruction in plain English and either provide a valid code snippet or a clear but brief step-by-step instruction.
+            - When providing a fix, give instruction in plain English and either provide a valid code snippet or a clear but brief and actionable step-by-step instruction.
             - Strongly prefer no findings over a speculative finding.
-            - Describe findings in plain English.
+            - Describe findings in plain English. Findings must be clear and easy to understand for a human reviewer.
             - Map each vulnerability to applicable OWASP Top 10 categories if relevant and possible.
             - Preserve all indentation and characters, without breaking JSON formatting rules.
             
@@ -130,13 +126,19 @@ class GenerativeAIAnalysis:
         response = requests.post(
             f"{self.baseUrl}/v1/chat/completions", 
             headers=AIRestAPI.buildRequestHeaders(),
-            json=payload
+            json=payload,
+            timeout=60
         )
         self.logger.debug(response.text)
 
         if response.status_code == 200:
             responseJson = response.json()
             self.logger.debug(responseJson)
+
+            if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+                self.contextWindowUsage += responseJson['usage']['total_tokens']
+                self.logger.debug(f"Context window usage after scanning {filePath}: {self.contextWindowUsage} tokens.")
+
             if 'choices' in responseJson:
                 aiMessageContent = responseJson['choices'][0]['message']['content']
                 
@@ -170,7 +172,8 @@ class GenerativeAIAnalysis:
                 - Set `overall` confidence to the **average** of the duplicates.
             - When findings conflict (e.g., different descriptions for the same line), adjust confidence scores downward to reflect uncertainty.
             - Use the provided source code only as a reference to verify and consolidate the existing findings.
-            - When making adjustments, ensure that findings are in plain English.
+            - The provided code allows for context-aware consolidation. Where possible, use the context of the code to resolve ambiguities in the findings, but do not add new findings that are not already present in the input.
+            - When making adjustments, ensure that findings are in plain English. Findings must be clear and easy to understand for a human reviewer.
             - Preserve all indentation and characters, without breaking JSON formatting rules.
             - If the OWASP or CWE mapping is inconsistent, adjust accordingly where a majority is selected, or where there is a better fit for the code snippet and vulnerability.
                         
@@ -201,6 +204,11 @@ class GenerativeAIAnalysis:
 
         responseJson = response.json()
         self.logger.debug(responseJson)
+
+        if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+            self.contextWindowUsage += responseJson['usage']['total_tokens']
+            self.logger.debug(f"Context window usage after aggregating {filePath}: {self.contextWindowUsage} tokens.")
+
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             
@@ -246,6 +254,11 @@ class GenerativeAIAnalysis:
 
         responseJson = response.json()
         self.logger.debug(responseJson)
+
+        if 'usage' in responseJson and 'total_tokens' in responseJson['usage']:
+            self.contextWindowUsage += responseJson['usage']['total_tokens']
+            self.logger.debug(f"Context window usage after OWASP assignment {fileReference}: {self.contextWindowUsage} tokens.")
+
         if 'choices' in responseJson:
             aiMessageContent = responseJson['choices'][0]['message']['content']
             

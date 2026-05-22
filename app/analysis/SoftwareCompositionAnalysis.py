@@ -11,7 +11,7 @@ import semantic_version
 import statistics
 
 from app.utils.ConsoleColour import ConsoleColour
-from app.utils.GitHelper import GitHelper
+from app.utils.GitHelper import GitCloneFailureError, GitHelper
 
 class SoftwareCompositionAnalysis:
     cacheDirectoryPath: str
@@ -29,7 +29,7 @@ class SoftwareCompositionAnalysis:
 
     def __init__(
             self, logger, cacheDirectoryPath, gitProjectDirectoryPath=None, allowedSPDXLicenses=[], overallCommitMinimumActivityDays=None,
-            maintainerCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAge=None, gitProjectName=None, gitCommitHash=None
+            maintainerCommitMinimumActivityDays=None, openToClosedIssueRatioThreshold=None, minimumVersionAgeDays=None, gitProjectName=None, gitCommitHash=None
         ):
         self.cacheDirectoryPath = cacheDirectoryPath
         self.dependencies = {}
@@ -47,7 +47,7 @@ class SoftwareCompositionAnalysis:
             'overallCommitMinimumActivityDays': overallCommitMinimumActivityDays or 1,
             'maintainerCommitMinimumActivityDays': maintainerCommitMinimumActivityDays or 1,
             'openToClosedIssueRatioThreshold': openToClosedIssueRatioThreshold or 0.01,
-            'minimumVersionAge': minimumVersionAge or 3650
+            'minimumVersionAge': minimumVersionAgeDays or 3650
         }
         self.versionLookup = {}
 
@@ -217,9 +217,10 @@ class SoftwareCompositionAnalysis:
 
         reportLines.append(f"## Thresholds")
         reportLines.append(f"- Allowed SPDX Licenses: {', '.join(self.userDefinedThresholds['allowedSPDXLicenses']) if self.userDefinedThresholds['allowedSPDXLicenses'] else 'None'}")
-        reportLines.append(f"- Overall Commit Minimum Activity Days: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
-        reportLines.append(f"- Maintainer Commit Minimum Activity Days: {self.userDefinedThresholds['maintainerCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Overall Commit Minimum Activity: {self.userDefinedThresholds['overallCommitMinimumActivityDays']} days")
+        reportLines.append(f"- Maintainer Commit Minimum Activity: {self.userDefinedThresholds['maintainerCommitMinimumActivityDays']} days")
         reportLines.append(f"- Open to Closed Issue Ratio Threshold: {self.userDefinedThresholds['openToClosedIssueRatioThreshold']:.2f}")
+        reportLines.append(f"- Minimum Dependency Version Age: {self.userDefinedThresholds['minimumVersionAge']} days")
         reportLines.append(f"")
 
         reportLines.append(f"## Summary")
@@ -244,47 +245,52 @@ class SoftwareCompositionAnalysis:
         for dep in self.dependencies:
             vulnCount = len(self.dependencies[dep]['vulnerabilities'])
             vulnerabilitiesCounts.append(vulnCount)
-            weakLinks_count = len(self.dependencies[dep].get('weakLinks', []))
-            weakLinksCounts.append(weakLinks_count)
+            linkCount = len(self.dependencies[dep].get('weakLinks', []))
+            weakLinksCounts.append(linkCount)
 
             if vulnCount > mostVulnerableDependencyCount:
                 mostVulnerableDependencyCount = vulnCount
                 mostVulnerableDependencyIdentifiers.append(dep)
 
-            if weakLinks_count > mostWeakLinkedDependencyCount:
-                mostWeakLinkedDependencyCount = weakLinks_count
+            if linkCount > mostWeakLinkedDependencyCount:
+                mostWeakLinkedDependencyCount = linkCount
                 mostWeakLinkedDependencyIdentifiers.append(dep)
+
+        self.logger.debug(f"Vulnerability counts for all dependencies: {vulnerabilitiesCounts}")
+        self.logger.debug(f"Weak link counts for all dependencies: {weakLinksCounts}")
 
         reportLines.append(f"- Total Known Vulnerabilities (CVEs): {totalVulnerabilities}")
         if mostVulnerableDependencyIdentifiers:
             reportLines.append(f"   - Dependencies with Most CVEs: {mostVulnerableDependencyIdentifiers}.")
-        reportLines.append(f"   - CVE Count Maximum: {max(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Minimum: {min(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Mean/Average: {statistics.mean(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Median: {statistics.median(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - CVE Count Mode(s): {statistics.multimode(vulnerabilitiesCounts)}")
-        reportLines.append(f"   - Range of CVE Counts: {max(vulnerabilitiesCounts) - min(vulnerabilitiesCounts)}")
+        reportLines.append(f"   - CVE Count Statistics:")
+        reportLines.append(f"      - Maximum Count: {max(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Minimum Count: {min(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Arithmetic Mean (Average): {statistics.mean(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Median: {statistics.median(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Mode(s): {statistics.multimode(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Range (Max-Min Difference): {(max(vulnerabilitiesCounts) - min(vulnerabilitiesCounts)) if len(vulnerabilitiesCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Standard Deviation (Measure of Spread): {statistics.stdev(vulnerabilitiesCounts) if len(vulnerabilitiesCounts) > 1 else 'N/A'}")
         
         reportLines.append(f"- Total Weak Links Detected: {totalWeakLinks}")
         if mostWeakLinkedDependencyIdentifiers:
             reportLines.append(f"   - Dependencies with Most Weak Links: {mostWeakLinkedDependencyIdentifiers}.")
-        reportLines.append(f"   - Weak Link Count Maximum: {max(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Minimum: {min(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Mean/Average: {statistics.mean(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Median: {statistics.median(weakLinksCounts)}")
-        reportLines.append(f"   - Weak Link Count Mode(s): {statistics.multimode(weakLinksCounts)}")
-        reportLines.append(f"   - Range of Weak Link Counts: {max(weakLinksCounts) - min(weakLinksCounts)}")
-        reportLines.append(f"   - Total Weak Links Per Category:")
+        reportLines.append(f"   - Weak Link Count Statistics:")
+        reportLines.append(f"      - Maximum Count: {max(weakLinksCounts) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Minimum Count: {min(weakLinksCounts) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Arithmetic Mean (Average): {statistics.mean(weakLinksCounts) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Median: {statistics.median(weakLinksCounts) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Mode(s): {statistics.multimode(weakLinksCounts) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Range (Max-Min Difference): {(max(weakLinksCounts) - min(weakLinksCounts)) if len(weakLinksCounts) > 0 else 'N/A'}")
+        reportLines.append(f"      - Standard Deviation (Measure of Spread): {statistics.stdev(weakLinksCounts) if len(weakLinksCounts) > 1 else 'N/A'}")
 
+        reportLines.append(f"   - Total Weak Links Per Category:")
         weakLinksByCategory = {}
         for dep in self.dependencies:
             for weakLink in self.dependencies[dep].get('weakLinks', []):
                 category = weakLink.get('id', 'uncategorized')
                 weakLinksByCategory[category] = weakLinksByCategory.get(category, 0) + 1
-
         # Order by alphabetical order
         weakLinksByCategory = dict(sorted(weakLinksByCategory.items()))
-
         for category, count in weakLinksByCategory.items():
             reportLines.append(f"      - {category}: {count}")
 
@@ -654,6 +660,11 @@ class SoftwareCompositionAnalysis:
 
             # https://packagist.org/apidoc
             response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
+
+            if response.status_code != 200:
+                self.logger.warning(f"Warning: Failed to fetch version data for {dependency['name']} from Packagist API. Status code: {response.status_code}. Response: {response.text}")
+                continue
+
             json = response.json()
             allVersions = []
 
@@ -699,6 +710,13 @@ class SoftwareCompositionAnalysis:
 
             # https://packagist.org/apidoc
             response = requests.get(f"https://repo.packagist.org/p2/{dependency['name']}.json")
+
+            self.logger.debug(response.text)
+
+            if response.status_code != 200:
+                self.logger.warning(f"Warning: Failed to fetch version data for {dependency['name']} from Packagist API. Status code: {response.status_code}. Response: {response.text}")
+                continue
+
             json = response.json()
 
             latestAvailableVersion = None
@@ -708,6 +726,8 @@ class SoftwareCompositionAnalysis:
 
             usedVersionSourceUrl = None
             usedVersionSourceReference = None
+
+            self.logger.debug(json)
 
             if 'packages' in json and dependency['name'] in json['packages']:
                 for data in json['packages'][dependency['name']]:
@@ -767,10 +787,13 @@ class SoftwareCompositionAnalysis:
 
             if repoUrl and repoReference:
                 self.logger.info(f"Caching repository for dependency {dependency['name']} from {repoUrl} at reference {repoReference} into {clonePath}.")
-                GitHelper.shallowClone(clonePath, repoUrl, repoReference, logger=self.logger, depth=1)
-
-                self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
-                self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
+                
+                try:
+                    GitHelper.shallowClone(clonePath, repoUrl, repoReference, logger=self.logger, depth=1)
+                    self.dependencies[dep]['metadata']['gitSource']['cachedPath'] = clonePath
+                    self.logger.debug(f"Cached repository for dependency {dependency['name']} at {clonePath}.")
+                except GitCloneFailureError as e:
+                    self.logger.warning(f"Warning: Failed to clone repository for dependency {dependency['name']} from {repoUrl} at reference {repoReference}. Error: {str(e)}. Skipping caching for this dependency.")
 
     def parseMetadataFromComposerManifestFile(self):
         self.logger.info("Parsing metadata from composer.json manifest files for all dependencies.")
@@ -963,6 +986,11 @@ class SoftwareCompositionAnalysis:
                         "Authorization": f"Bearer {os.getenv('GITHUB_API_BEARER_TOKEN')}"
                     }
                 )
+
+                if response.status_code != 200:
+                    self.logger.warning(f"Warning: Failed to fetch commits for repository {gitProjectSlug} from GitHub API. Status code: {response.status_code}. Response: {response.text}")
+                    continue
+
                 commits = response.json()
                 self.logger.debug(commits)
 
