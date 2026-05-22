@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Upcoming Changes
+## 0.2.0 - 2026-05-22
 
 - Feature: Added SecAware version into the report.
 - Feature: Added support for `--scan-identifier` which, when populated, will be included in the final report to act as an identifier of a scan. This is also used within the report directory path to avoid commit reference conflicts.
