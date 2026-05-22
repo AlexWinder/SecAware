@@ -15,7 +15,7 @@
 - Fix: Handle crashes from Psalm causing the whole process to fail.
 - Fix: Deleted files are included in the vulnerability scan, causing crashes due to file not found.
 - Fix: SCA fails for dependencies that cannot be found via the Packagist API.
-- Fix: Project is not cloned if there is no parent commit beyond the provided git reference.
+- Fix: Project is not cloned if there is no parent commit beyond the provided Git reference.
 - Fix: SecAware report not generated if SCA is not executed (such as missing `composer.json`).
 - Fix: Improved error handling from AI API provider.
 - Fix: Improved wording of statistical measurements in SCA component report.
