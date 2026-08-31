@@ -130,25 +130,27 @@ Below shows a top-level view of the process that SecAware follows when conductin
 title: SecAware State Diagram
 ---
 stateDiagram-v2
-    state "Clone repository at Git reference for analysis" as cloneRepo
-    state "Identify suitable files for analysis" as identifyFiles
-    state "Execute software composition analysis" as executeSCA
+    state "Clone project repository at reference (Git commit)" as cloneRepo
+    state "Identify modified PHP files for vulnerability analysis" as identifyFiles
+    state "Execute Software Composition Analysis (SCA) and produce report" as executeSCA
     state "Execute static analysis (Psalm)" as executeSA
-    state "Execute generative AI analysis" as executeGAIA
+    state "Execute generative AI analysis (GAIA)" as executeGAIA
     state "Combine relevant vulnerability findings" as identifyRelevantFindings
     state "Produce contextualised vulnerability report" as produceContextualisedReport
     state "Produce execution summary report" as produceExecutionReport
-    state "Combine reports into final report" as finalReport
+    state "Combine reports into final security report" as finalReport
 
     state analysisFork <<fork>>
+    state cloneFork <<fork>> 
     state analysisJoin <<join>>
     state combineJoin <<join>>
 
     [*] --> cloneRepo
-    cloneRepo --> identifyFiles
+    cloneRepo --> cloneFork
+    cloneFork --> identifyFiles
     identifyFiles --> analysisFork
 
-    analysisFork --> executeSCA
+    cloneFork --> executeSCA
     analysisFork --> executeSA
     analysisFork --> executeGAIA
 
@@ -157,13 +159,15 @@ stateDiagram-v2
 
     analysisJoin --> identifyRelevantFindings
 
-    identifyRelevantFindings --> combineJoin
+    identifyRelevantFindings --> produceContextualisedReport
+
     executeSCA --> combineJoin
 
-    combineJoin --> produceContextualisedReport
-
     produceContextualisedReport --> produceExecutionReport
-    produceExecutionReport --> finalReport
+
+    produceExecutionReport --> combineJoin
+
+    combineJoin --> finalReport
 
     finalReport --> [*]
 ```
@@ -184,13 +188,13 @@ stateDiagram-v2
     state "Query Packagist API for metadata for each dependency version(s)" as getDependenciesMetadata
     state "Download a local cached copy of each dependency" as cacheDependency
     state "Parse composer.json metadata for each dependency" as parseDependenciesComposer
-    state "Get all known CVEs for each dependency" as cveTopLevel
-    state "Get more detail for each identified CVE" as cveExtraDetail
+    state "Get all known CVEs for each dependency from OSV.dev API" as cveTopLevel
+    state "Get more detail for each identified CVE from OSV.dev API" as cveExtraDetail
     state "Identify weak links from metadata for each dependency" as weakLinkMetadata
-    state "Retrieve repository statistics for each dependency" as retrieveRepositoryStatistics
+    state "Retrieve repository statistics from GitHub API for each dependency" as retrieveRepositoryStatistics
     state "Identify weak links from repository statistics for each dependency" as weakLinkRepositoryStatistics
     state "Identify passive weak links for each dependency" as weakLinkPassive
-    state "Build report" as buildReport
+    state "Build SCA report" as buildReport
 
     state ifGetPossibleVersions <<choice>>
     state analysisFork <<fork>>
@@ -203,9 +207,10 @@ stateDiagram-v2
 
     buildDependencyGraph --> ifGetPossibleVersions
 
-    ifGetPossibleVersions --> getAllVersions: composer.lock missing
+    ifGetPossibleVersions --> [*]: composer.json missing
+    ifGetPossibleVersions --> getAllVersions: composer.json present, composer.lock missing
     getAllVersions --> getDependenciesMetadata
-    ifGetPossibleVersions --> getDependenciesMetadata: composer.lock present
+    ifGetPossibleVersions --> getDependenciesMetadata: composer.json present, composer.lock present
 
     getDependenciesMetadata --> cacheDependency
     cacheDependency --> parseDependenciesComposer
@@ -237,7 +242,7 @@ Below shows an overview of the process that the generative AI component conducti
 
 ```mermaid
 ---
-title: Generative AI Analysis State Diagram
+title: Generative AI Analysis (GAIA) State Diagram
 ---
 stateDiagram-v2
     state "Store list of files to scan for vulnerabilities" as storeList
