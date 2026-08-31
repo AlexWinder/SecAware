@@ -188,7 +188,7 @@ stateDiagram-v2
     state "Query Packagist API to get all possible versions for dependencies" as getAllVersions
     state "Query Packagist API for metadata for each dependency version(s)" as getDependenciesMetadata
     state "Download a local cached copy of each dependency" as cacheDependency
-    state "Parse composer.json metadata for each dependency" as parseDependenciesComposer
+    state "Parse manifest file (composer.json) metadata for each dependency" as parseDependenciesComposer
     state "Get all known CVEs for each dependency from OSV.dev API" as cveTopLevel
     state "Get more detail for each identified CVE from OSV.dev API" as cveExtraDetail
     state "Identify weak links from metadata for each dependency" as weakLinkMetadata
