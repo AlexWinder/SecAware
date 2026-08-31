@@ -181,8 +181,9 @@ Below shows an overview of the process that the SCA component takes when conduct
 title: Software Composition Analysis (SCA) State Diagram
 ---
 stateDiagram-v2
-    state "Ingest manifest files (composer.json & composer.lock)" as ingestFiles
-    state "Build inventory from manifest files" as buildInventory
+    state "Check whether manifest file (composer.json) exists" as checkManifestFile
+    state "Ingest manifest file" as ingestManifestFile
+    state "Build inventory from manifest file" as buildInventory
     state "Build dependency graph from inventory" as buildDependencyGraph
     state "Query Packagist API to get all possible versions for dependencies" as getAllVersions
     state "Query Packagist API for metadata for each dependency version(s)" as getDependenciesMetadata
@@ -196,21 +197,26 @@ stateDiagram-v2
     state "Identify passive weak links for each dependency" as weakLinkPassive
     state "Build SCA report" as buildReport
 
+    state ifComposerJsonAvailable <<choice>>
     state ifGetPossibleVersions <<choice>>
     state analysisFork <<fork>>
     state weakLinkJoin <<join>>
     state analysisJoin <<join>>
 
-    [*] --> ingestFiles
-    ingestFiles --> buildInventory
+    [*] --> checkManifestFile
+
+    checkManifestFile --> ifComposerJsonAvailable
+
+    ifComposerJsonAvailable --> ingestManifestFile: composer.json present
+    ingestManifestFile --> buildInventory
     buildInventory --> buildDependencyGraph
 
     buildDependencyGraph --> ifGetPossibleVersions
 
-    ifGetPossibleVersions --> [*]: composer.json missing
-    ifGetPossibleVersions --> getAllVersions: composer.json present, composer.lock missing
+    ifComposerJsonAvailable --> [*]: composer.json missing
+    ifGetPossibleVersions --> getAllVersions: composer.lock missing
     getAllVersions --> getDependenciesMetadata
-    ifGetPossibleVersions --> getDependenciesMetadata: composer.json present, composer.lock present
+    ifGetPossibleVersions --> getDependenciesMetadata: composer.lock present
 
     getDependenciesMetadata --> cacheDependency
     cacheDependency --> parseDependenciesComposer
