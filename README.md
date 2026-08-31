@@ -185,13 +185,13 @@ stateDiagram-v2
     state "Ingest manifest file" as ingestManifestFile
     state "Build inventory from manifest file" as buildInventory
     state "Build dependency graph from inventory" as buildDependencyGraph
-    state "Query Packagist API to get all possible versions for dependencies" as getAllVersions
-    state "Query Packagist API for metadata for each dependency version(s)" as getDependenciesMetadata
+    state "Query Packagist API to get all possible versions of all dependencies" as getAllVersions
+    state "Query Packagist API for metadata for each dependency version" as getDependenciesMetadata
     state "Download a local cached copy of each dependency" as cacheDependency
     state "Parse manifest file (composer.json) metadata for each dependency" as parseDependenciesComposer
     state "Get all known CVEs for each dependency from OSV.dev API" as cveTopLevel
     state "Get more detail for each identified CVE from OSV.dev API" as cveExtraDetail
-    state "Identify weak links from metadata for each dependency" as weakLinkMetadata
+    state "Identify weak links from manifest file metadata for each dependency" as weakLinkMetadata
     state "Retrieve repository statistics from GitHub API for each dependency" as retrieveRepositoryStatistics
     state "Identify weak links from repository statistics for each dependency" as weakLinkRepositoryStatistics
     state "Identify passive weak links for each dependency" as weakLinkPassive
