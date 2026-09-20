@@ -189,9 +189,9 @@ stateDiagram-v2
     state "Query Packagist API for metadata for each dependency version" as getDependenciesMetadata
     state "Download a local cached copy of each dependency" as cacheDependency
     state "Parse manifest file (composer.json) metadata for each dependency" as parseDependenciesComposer
-    state "Get all known CVEs for each dependency from OSV.dev API" as cveTopLevel
-    state "Get more detail for each identified CVE from OSV.dev API" as cveExtraDetail
-    state "Identify weak links from manifest file metadata for each dependency" as weakLinkMetadata
+    state "Get all known vulnerabilities for each dependency from OSV.dev API" as cveTopLevel
+    state "Get more detail for each identified vulnerability from OSV.dev API" as cveExtraDetail
+    state "Identify weak links from manifest file (composer.json) metadata for each dependency" as weakLinkMetadata
     state "Retrieve repository statistics from GitHub API for each dependency" as retrieveRepositoryStatistics
     state "Identify weak links from repository statistics for each dependency" as weakLinkRepositoryStatistics
     state "Identify passive weak links for each dependency" as weakLinkPassive
