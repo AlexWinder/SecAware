@@ -75,8 +75,8 @@
         <mxCell id="kt3Y4SUPMqtVcgA9UY-T-28" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=11;fontSize=14;" value="Psalm provides static analysis functionality" vertex="1">
           <mxGeometry height="80" width="93" x="642.15" y="450" as="geometry" />
         </mxCell>
-        <mxCell id="kt3Y4SUPMqtVcgA9UY-T-31" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=11;fontSize=14;" value="OSV.dev API provides details about known CVEs for dependencies" vertex="1">
-          <mxGeometry height="80" width="128.33" x="510" y="539" as="geometry" />
+        <mxCell id="kt3Y4SUPMqtVcgA9UY-T-31" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=11;fontSize=14;" value="OSV.dev API provides details about known vulnerabilities for dependencies" vertex="1">
+          <mxGeometry height="80" width="170" x="490" y="539" as="geometry" />
         </mxCell>
         <mxCell id="kt3Y4SUPMqtVcgA9UY-T-33" parent="1" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;size=11;fontSize=14;" value="Packagist API provides details about available versions for dependencies" vertex="1">
           <mxGeometry height="90" width="121.5" x="173" y="425" as="geometry" />
